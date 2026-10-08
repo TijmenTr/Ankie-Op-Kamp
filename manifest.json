@@ -2,7 +2,7 @@
   "name": "Ankie op Kamp – Spelers",
   "short_name": "AoK Spelers",
   "description": "Kaartscherm voor Ankie en Femke",
-  "start_url": "/",
+  "start_url": "/speler.html",
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#1a1a2e",
