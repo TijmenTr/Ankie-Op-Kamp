@@ -232,7 +232,12 @@
 <div id="r-toast" class="r-toast"></div>
 
 <script>
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(regs) {
+    regs.forEach(function(reg) { reg.unregister(); });
+  });
+  caches.keys().then(function(k) { k.forEach(function(n) { caches.delete(n); }); });
+}
 </script>
 
 <script>
