@@ -23,10 +23,10 @@
     border: 2px solid rgba(255,255,255,0.15);
     border-radius: 20px; padding: 1.8rem;
     text-decoration: none; color: #fff;
-    display: block; cursor: pointer;
+    display: block;
     transition: transform 0.15s, background 0.15s;
   }
-  .card:hover, .card:active { transform: translateY(-3px); background: rgba(255,255,255,0.14); }
+  .card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.14); }
   .card-icon { font-size: 2.8rem; margin-bottom: 0.6rem; display: block; }
   .card h2 { font-size: 1.5rem; font-weight: 900; margin-bottom: 0.4rem; }
   .card p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; }
@@ -43,12 +43,12 @@
   <h1>Ankie op Kamp</h1>
   <p class="sub">YouTube-serie · Kaartlezen als vroeger</p>
   <div class="cards">
-    <a href="speler.html" class="card card-speler">
+    <a href="./speler.html" class="card card-speler">
       <span class="card-icon">📍</span>
       <h2>Spelersscherm</h2>
       <p>Voor Ankie &amp; Femke — schermvullende kaart in de auto.<br>Open dit op de spelerstablet.</p>
     </a>
-    <a href="regie.html" class="card card-regie">
+    <a href="./regie.html" class="card card-regie">
       <span class="card-icon">🎬</span>
       <h2>Regie (Tijmen)</h2>
       <p>Pincode beveiligd. Routes, opdrachten, spelers volgen en audio.<br>Standaard pincode: <strong>1234</strong></p>
@@ -56,16 +56,5 @@
   </div>
   <p class="footer">Synchroniseert live via Supabase ☁️</p>
 </div>
-<script>
-/* Wis service worker cache zodat oude versies niet blokkeren */
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(function(regs) {
-    regs.forEach(function(reg) { reg.unregister(); });
-  });
-  caches.keys().then(function(keys) {
-    keys.forEach(function(k) { caches.delete(k); });
-  });
-}
-</script>
 </body>
 </html>

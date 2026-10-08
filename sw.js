@@ -1,4 +1,4 @@
-/* Service Worker — wis oude caches en verwijder zichzelf */
+/* Service worker uitgeschakeld */
 self.addEventListener('install', function() { self.skipWaiting(); });
 self.addEventListener('activate', function(e) {
   e.waitUntil(
@@ -7,7 +7,4 @@ self.addEventListener('activate', function(e) {
     }).then(function() { return self.clients.claim(); })
   );
 });
-/* Geen caching meer — alles rechtstreeks van netwerk */
-self.addEventListener('fetch', function(e) {
-  e.respondWith(fetch(e.request));
-});
+/* Geen fetch handler — alles gaat rechtstreeks naar netwerk */
