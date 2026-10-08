@@ -423,7 +423,7 @@ function startPositiePolling() {
   setInterval(async function() {
     var p = await PositieStore.fetch();
     if (!p) return;
-    if (Date.now() - Number(p.timestamp) > 30000) {
+    if (Date.now() - Number(p.ts) > 30000) {
       document.getElementById('r-gps-dot').className = 'gps-dot gps-searching';
       document.getElementById('r-gps-label').textContent = 'GPS oud';
       return;

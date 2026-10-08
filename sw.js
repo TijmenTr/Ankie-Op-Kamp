@@ -3,6 +3,7 @@ const CACHE = 'aok-v1';
 const PRECACHE = [
   '/',
   '/index.html',
+  '/speler.html',
   '/regie.html',
   '/css/speler.css',
   '/css/regie.css',
@@ -27,7 +28,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   // Network-first voor API calls, cache-first voor assets
-  if (e.request.url.includes('/tables/') || e.request.url.includes('nominatim') || e.request.url.includes('osrm') || e.request.url.includes('openfreemap') || e.request.url.includes('unpkg')) {
+  if (e.request.url.includes('supabase.co') || e.request.url.includes('nominatim') || e.request.url.includes('osrm') || e.request.url.includes('openfreemap')) {
     e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
     return;
   }
