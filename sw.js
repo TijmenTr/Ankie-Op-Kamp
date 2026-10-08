@@ -1,7 +1,6 @@
 /* Service Worker – Ankie op Kamp */
-const CACHE = 'aok-v1';
+const CACHE = 'aok-v3';
 const PRECACHE = [
-  '/',
   '/index.html',
   '/speler.html',
   '/regie.html',
