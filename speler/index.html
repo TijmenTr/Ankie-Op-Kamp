@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Ankie op Kamp – Spelersscherm</title>
+<link rel="manifest" href="/manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.css">
+<link rel="stylesheet" href="/css/speler.css">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<script src="/js/sync.js"></script>
+</head>
+<body>
+
+<!-- ── START SCHERM ── -->
+<div id="start-screen">
+  <div class="start-inner">
+    <div class="start-logo">🗺️</div>
+    <h1>Ankie op Kamp</h1>
+    <p>Kaartlezen als vroeger</p>
+    <button id="btn-start-rit" class="btn-start">▶ Start de rit</button>
+    <p class="start-hint">Tik om de app te starten en audio te activeren</p>
+  </div>
+</div>
+
+<!-- ── HOOFD APP ── -->
+<div id="app" style="display:none; position:fixed; inset:0;">
+
+  <div id="map" style="position:absolute;inset:0;"></div>
+
+  <div id="route-alert" class="route-alert hidden">
+    <span class="alert-icon">⚠️</span>
+    <span class="alert-text">Jullie zijn van de route af</span>
+    <span class="alert-sub">Route terug wordt getoond</span>
+  </div>
+
+  <div id="opdracht-overlay" class="opdracht-overlay hidden">
+    <div class="opdracht-card">
+      <div class="opdracht-header">
+        <span class="opdracht-icon">📋</span>
+        <h2 id="opdracht-titel">Opdracht</h2>
+      </div>
+      <div id="opdracht-afbeelding-wrap" class="hidden">
+        <img id="opdracht-afbeelding" src="" alt="Opdracht afbeelding">
+      </div>
+      <p id="opdracht-tekst"></p>
+      <div id="opdracht-timer" class="opdracht-timer hidden">
+        <span class="timer-label">Tijd:</span>
+        <span id="timer-display" class="timer-value">00:00</span>
+      </div>
+      <button id="btn-opdracht-klaar" class="btn-klaar">✓ Voltooid!</button>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <span id="gps-indicator" class="gps-dot gps-searching" title="GPS status"></span>
+    <span id="gps-label">GPS zoeken…</span>
+    <span class="status-sep">|</span>
+    <span id="sync-label">Verbinden…</span>
+  </div>
+
+  <audio id="audio-player" preload="auto"></audio>
+
+</div>
+
+<script>
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
+</script>
+
+<script>
+'use strict';
+
+var map = null;
+var audioUnlocked = false;
+var audioPlayer = document.getElementById('audio-player');
+var currentPos = null;
+var activeRoute = { coords: [], id: null };
+var offRouteStart = null;
+var isOffRoute = false;
+var settings = {};
+var activeOpdracht = null;
+var completedIds = {};
+var pendingOpdrachten = [];
+var audioCache = {};
+var playerVisibleTimer = null;
+var playerVisible = false;
+
+document.getElementById('btn-start-rit').addEventListener('click', function() {
+  try {
+    audioPlayer.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    audioPlayer.play().catch(function(){});
+    audioUnlocked = true;
+  } catch(e) {}
+
+  document.getElementById('start-screen').style.display = 'none';
+  var appEl = document.getElementById('app');
+  appEl.style.display = 'block';
+  initApp();
+});
+
+async function initApp() {
+  loadSettings();
+  SettingsStore.load().then(function() { loadSettings(); }).catch(function(){});
+  initMap();
+  startGPS();
+  loadActiveRoute().catch(function(e){ console.warn('route laden:', e); });
+  loadPendingOpdrachten().catch(function(e){ console.warn('opdrachten laden:', e); });
+  loadAudioCatalog().catch(function(e){});
+  SignalBus.startPolling(2500);
+  bindSignals();
+  requestWakeLock();
+  setInterval(syncLoop, 6000);
+  document.getElementById('sync-label').textContent = 'Verbonden';
+}
+
+function loadSettings() {
+  settings = {
+    afwijkingDrempel:    SettingsStore.get('afwijking_drempel', 500),
+    wachttijd:           SettingsStore.get('wachttijd', 30),
+    locatieZichtbaarDuur:SettingsStore.get('locatie_zichtbaar_duur', 60),
+    toonRoute:           SettingsStore.get('toon_route', false),
+    toonBestemming:      SettingsStore.get('toon_bestemming', false),
+    terughaalActief:     SettingsStore.get('terughaal_actief', true),
+    kaartstijl:          SettingsStore.get('kaartstijl', 'https://tiles.openfreemap.org/styles/liberty'),
+  };
+}
+
+function initMap() {
+  try {
+    map = new maplibregl.Map({
+      container: 'map',
+      style: settings.kaartstijl,
+      center: [5.2913, 52.1326],
+      zoom: 9,
+      attributionControl: false,
+    });
+    map.once('load', function() {
+      map.resize();
+      hidePOILayers();
+      addSpelerLayers();
+      if (activeRoute.coords.length) drawRoute();
+    });
+    setTimeout(function() { if (map) map.resize(); }, 200);
+    setTimeout(function() { if (map) map.resize(); }, 800);
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+  } catch(e) {
+    console.error('Kaart init fout:', e);
+    document.getElementById('sync-label').textContent = 'Kaart fout: ' + e.message;
+  }
+}
+
+function hidePOILayers() {
+  if (!map || !map.getStyle()) return;
+  var poiPatterns = ['poi','shop','restaurant','cafe','hotel','amenity','worship','transit','airport','station','parking'];
+  try {
+    var layers = map.getStyle().layers || [];
+    layers.forEach(function(layer) {
+      if (layer.type !== 'symbol') return;
+      var lid = layer.id.toLowerCase();
+      if (lid.includes('place')||lid.includes('road')||lid.includes('street')||
+          lid.includes('highway')||lid.includes('city')||lid.includes('town')||
+          lid.includes('village')||lid.includes('country')||lid.includes('water')||
+          lid.includes('label')||lid.includes('name')||lid.includes('state')) return;
+      var isPOI = poiPatterns.some(function(k) { return lid.includes(k); });
+      if (isPOI) { try { map.setLayoutProperty(layer.id, 'visibility', 'none'); } catch(e) {} }
+    });
+  } catch(e) {}
+}
+
+function addSpelerLayers() {
+  try {
+    map.addSource('speler-route', { type: 'geojson', data: emptyLine() });
+    map.addLayer({ id: 'speler-route-line', type: 'line', source: 'speler-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#3b82f6', 'line-width': 5, 'line-opacity': 0, 'line-dasharray': [2,2] } });
+    map.addSource('return-route', { type: 'geojson', data: emptyLine() });
+    map.addLayer({ id: 'return-route-line', type: 'line', source: 'return-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#f97316', 'line-width': 6, 'line-opacity': 0.9 } });
+    map.addSource('player-pos', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0,0] } } });
+    map.addLayer({ id: 'player-dot', type: 'circle', source: 'player-pos',
+      paint: { 'circle-radius': 12, 'circle-color': '#ef4444', 'circle-stroke-width': 3,
+               'circle-stroke-color': '#fff', 'circle-opacity': 0, 'circle-stroke-opacity': 0 } });
+  } catch(e) { console.warn('Speler layers fout:', e); }
+}
+
+function emptyLine() {
+  return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } };
+}
+
+function startGPS() {
+  if (!navigator.geolocation) {
+    document.getElementById('gps-label').textContent = 'Geen GPS beschikbaar';
+    return;
+  }
+  navigator.geolocation.watchPosition(onGPS, onGPSError, {
+    enableHighAccuracy: true, maximumAge: 0, timeout: 15000,
+  });
+}
+
+function onGPS(pos) {
+  var lat = pos.coords.latitude;
+  var lon = pos.coords.longitude;
+  var acc = pos.coords.accuracy;
+  var spd = pos.coords.speed;
+  var hdg = pos.coords.heading;
+
+  var dot = document.getElementById('gps-indicator');
+  if (acc < 30)       dot.className = 'gps-dot gps-good';
+  else if (acc < 100) dot.className = 'gps-dot gps-ok';
+  else                dot.className = 'gps-dot gps-weak';
+  document.getElementById('gps-label').textContent = 'GPS ±' + Math.round(acc) + 'm';
+
+  PositieStore.push(lat, lon, acc, spd, hdg);
+
+  if (map && map.getSource('player-pos')) {
+    try { map.getSource('player-pos').setData({ type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] } }); } catch(e) {}
+  }
+  if (map && !currentPos) {
+    map.flyTo({ center: [lon, lat], zoom: 13 });
+  }
+  currentPos = { lat: lat, lon: lon, accuracy: acc, speed: spd, heading: hdg };
+
+  if (settings.terughaalActief && activeRoute.coords && activeRoute.coords.length > 1) {
+    checkRouteDeviation(lat, lon);
+  }
+  checkLocationOpdrachten(lat, lon);
+}
+
+function onGPSError(err) {
+  document.getElementById('gps-indicator').className = 'gps-dot gps-error';
+  var msgs = { 1: 'GPS geweigerd', 2: 'GPS niet beschikbaar', 3: 'GPS timeout' };
+  document.getElementById('gps-label').textContent = msgs[err.code] || 'GPS fout';
+}
+
+function checkRouteDeviation(lat, lon) {
+  var dist = distanceToRoute(lat, lon, activeRoute.coords);
+  var drempel = settings.afwijkingDrempel || 500;
+  var wachttijdMs = (settings.wachttijd || 30) * 1000;
+  if (dist > drempel) {
+    if (!offRouteStart) offRouteStart = Date.now();
+    if (!isOffRoute && (Date.now() - offRouteStart) >= wachttijdMs) triggerOffRoute(lat, lon);
+  } else {
+    if (isOffRoute) { if (dist < drempel * 0.65) clearOffRoute(); }
+    else { offRouteStart = null; }
+  }
+}
+
+async function triggerOffRoute(lat, lon) {
+  isOffRoute = true;
+  document.getElementById('route-alert').classList.remove('hidden');
+  setPlayerVisible(true);
+  try {
+    var closest = closestRoutePoint(lat, lon, activeRoute.coords);
+    var route = await osrmRoute([{ lat: lat, lon: lon }, { lat: closest[1], lon: closest[0] }]);
+    if (map && map.getSource('return-route')) {
+      map.getSource('return-route').setData({ type: 'Feature', geometry: route.geometry });
+    }
+  } catch(e) { console.warn('Terugkeer route fout:', e); }
+  SignalBus.send('van_route_af', { lat: lat, lon: lon, timestamp: Date.now() });
+}
+
+function clearOffRoute() {
+  isOffRoute = false;
+  offRouteStart = null;
+  document.getElementById('route-alert').classList.add('hidden');
+  setPlayerVisible(false);
+  try { if (map && map.getSource('return-route')) map.getSource('return-route').setData(emptyLine()); } catch(e) {}
+  SignalBus.send('terug_op_route', { timestamp: Date.now() });
+}
+
+function closestRoutePoint(lat, lon, coords) {
+  var best = coords[0], bestD = Infinity;
+  coords.forEach(function(c) {
+    var d = haversineM(lat, lon, c[1], c[0]);
+    if (d < bestD) { bestD = d; best = c; }
+  });
+  return best;
+}
+
+function setPlayerVisible(visible) {
+  playerVisible = visible;
+  var opacity = visible ? 1 : 0;
+  if (map) {
+    try { map.setPaintProperty('player-dot', 'circle-opacity', opacity); } catch(e) {}
+    try { map.setPaintProperty('player-dot', 'circle-stroke-opacity', opacity); } catch(e) {}
+  }
+  if (visible && settings.locatieZichtbaarDuur > 0) {
+    clearTimeout(playerVisibleTimer);
+    playerVisibleTimer = setTimeout(function() {
+      if (!isOffRoute) setPlayerVisible(false);
+    }, settings.locatieZichtbaarDuur * 1000);
+  }
+}
+
+async function loadActiveRoute() {
+  var r = await API.get('aok_routes', 'limit=20');
+  var routes = (r.data || []).filter(function(x) { return !x.deleted; });
+  var actief = routes.find(function(x) { return x.actief; }) || routes[routes.length - 1];
+  if (!actief) return;
+  activeRoute.id = actief.id;
+  activeRoute.coords = [];
+  if (actief.geojson) {
+    try { var geo = JSON.parse(actief.geojson); activeRoute.coords = geo.coordinates || []; } catch(e) {}
+  }
+  drawRoute();
+}
+
+function drawRoute() {
+  if (!map || !map.getSource('speler-route')) return;
+  try {
+    map.getSource('speler-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coords } });
+    map.setPaintProperty('speler-route-line', 'line-opacity', settings.toonRoute ? 0.8 : 0);
+  } catch(e) {}
+}
+
+async function loadPendingOpdrachten() {
+  var r = await API.get('aok_opdrachten', 'limit=100');
+  pendingOpdrachten = (r.data || []).filter(function(o) { return !o.deleted && o.status !== 'voltooid'; });
+  pendingOpdrachten.filter(function(o) { return o.type === 'tijd'; }).forEach(scheduleTijdOpdracht);
+}
+
+function scheduleTijdOpdracht(opdracht) {
+  if (opdracht.trigger_minuten > 0) {
+    setTimeout(function() { showOpdracht(opdracht); }, opdracht.trigger_minuten * 60000);
+  } else if (opdracht.trigger_tijd) {
+    var now = new Date();
+    var parts = opdracht.trigger_tijd.split(':');
+    var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(parts[0]), parseInt(parts[1]), 0);
+    var diff = target - now;
+    if (diff > 0) setTimeout(function() { showOpdracht(opdracht); }, diff);
+    else if (diff > -300000) showOpdracht(opdracht);
+  }
+}
+
+function checkLocationOpdrachten(lat, lon) {
+  pendingOpdrachten.forEach(function(o) {
+    if (o.type !== 'locatie' || completedIds[o.id] || !o.lat || !o.lon) return;
+    var dist = haversineM(lat, lon, o.lat, o.lon);
+    if (dist <= (o.straal || 200)) showOpdracht(o);
+  });
+}
+
+function showOpdracht(opdracht) {
+  if (completedIds[opdracht.id]) return;
+  if (activeOpdracht && activeOpdracht.id === opdracht.id) return;
+  activeOpdracht = opdracht;
+  document.getElementById('opdracht-titel').textContent = opdracht.titel || 'Nieuwe opdracht';
+  document.getElementById('opdracht-tekst').textContent = opdracht.tekst || '';
+  var imgWrap = document.getElementById('opdracht-afbeelding-wrap');
+  if (opdracht.afbeelding_url) {
+    document.getElementById('opdracht-afbeelding').src = opdracht.afbeelding_url;
+    imgWrap.classList.remove('hidden');
+  } else { imgWrap.classList.add('hidden'); }
+  document.getElementById('opdracht-timer').classList.add('hidden');
+  if (opdracht.audio_id) playAudioById(opdracht.audio_id);
+  document.getElementById('opdracht-overlay').classList.remove('hidden');
+  SignalBus.send('opdracht_gezien', { id: opdracht.id, timestamp: Date.now() });
+}
+
+document.getElementById('btn-opdracht-klaar').addEventListener('click', async function() {
+  if (!activeOpdracht) return;
+  completedIds[activeOpdracht.id] = true;
+  try { await API.patch('aok_opdrachten', activeOpdracht.id, { status: 'voltooid' }); } catch(e) {}
+  SignalBus.send('opdracht_voltooid', { id: activeOpdracht.id, timestamp: Date.now() });
+  activeOpdracht = null;
+  document.getElementById('opdracht-overlay').classList.add('hidden');
+});
+
+async function loadAudioCatalog() {
+  var r = await API.get('aok_audio', 'limit=100');
+  (r.data || []).forEach(function(a) { audioCache[a.id] = a; });
+}
+
+function playAudioById(id) {
+  var a = audioCache[id];
+  if (a && a.url) playAudioUrl(a.url);
+}
+
+function playAudioUrl(url) {
+  if (!audioUnlocked) return;
+  try {
+    audioPlayer.src = url;
+    audioPlayer.play().catch(function(e) { console.warn('audio play fout:', e); });
+  } catch(e) {}
+}
+
+function bindSignals() {
+  SignalBus.on('toon_locatie', function() { setPlayerVisible(true); });
+  SignalBus.on('verberg_locatie', function() { setPlayerVisible(false); });
+  SignalBus.on('speel_audio', function(p) { playAudioUrl(p.url); });
+  SignalBus.on('toon_opdracht', function(p) { showOpdracht(p); });
+  SignalBus.on('route_bijgewerkt', function() { loadActiveRoute().catch(function(){}); });
+  SignalBus.on('instellingen_bijgewerkt', function() {
+    SettingsStore.load().then(function() { loadSettings(); drawRoute(); });
+  });
+  SignalBus.on('centreer_kaart', function(p) {
+    if (map && p && p.lat && p.lon) map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom || 12 });
+  });
+}
+
+async function syncLoop() {
+  try { await loadPendingOpdrachten(); } catch(e) {}
+}
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    var wl = await navigator.wakeLock.request('screen');
+    document.addEventListener('visibilitychange', async function() {
+      if (document.visibilityState === 'visible') {
+        try { wl = await navigator.wakeLock.request('screen'); } catch(e) {}
+      }
+    });
+  } catch(e) {}
+}
+</script>
+</body>
+</html>
