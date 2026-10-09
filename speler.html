@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Ankie op Kamp – Spelersscherm</title>
+<link rel="manifest" href="/manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.css">
+<link rel="stylesheet" href="/css/speler.css">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<script src="/js/sync.js"></script>
+</head>
+<body>
+
+<!-- ── START SCHERM ── -->
+<div id="start-screen">
+  <div class="start-inner">
+    <div class="start-logo">🗺️</div>
+    <h1>Ankie op Kamp</h1>
+    <p>Kaartlezen als vroeger</p>
+    <button id="btn-start-rit" class="btn-start">▶ Start de rit</button>
+    <p class="start-hint">Tik om de app te starten en audio te activeren</p>
+  </div>
+</div>
+
+<!-- ── HOOFD APP ── -->
+<div id="app" style="display:none; position:fixed; inset:0;">
+
+  <div id="map" style="position:absolute;inset:0;"></div>
+
+  <!-- Navigatie instructie banner -->
+  <div id="nav-banner">
+    <div id="nav-stap">
+      <div id="nav-pijl">↑</div>
+      <div id="nav-tekst">Rijd rechtdoor</div>
+      <div id="nav-afstand">–</div>
+    </div>
+    <div id="nav-totaal">
+      <span id="nav-totaal-afstand">–</span>
+      <span id="nav-totaal-tijd">–</span>
+    </div>
+  </div>
+
+  <!-- Route af melding -->
+  <div id="route-alert" class="route-alert hidden">
+    <span class="alert-icon">⚠️</span>
+    <span class="alert-text">Jullie zijn van de route af</span>
+    <span class="alert-sub">Route terug wordt berekend…</span>
+  </div>
+
+  <!-- Inkomend bericht overlay -->
+  <div id="bericht-overlay" class="bericht-overlay hidden">
+    <div class="bericht-card">
+      <div class="bericht-header">
+        <span class="bericht-icon">📢</span>
+        <h2>Bericht van Regie</h2>
+      </div>
+      <p id="bericht-tekst"></p>
+      <button id="btn-bericht-sluiten" class="btn-klaar" style="background:#3b82f6;">OK</button>
+    </div>
+  </div>
+
+  <!-- Opdracht overlay -->
+  <div id="opdracht-overlay" class="opdracht-overlay hidden">
+    <div class="opdracht-card">
+      <div class="opdracht-header">
+        <span class="opdracht-icon">📋</span>
+        <h2 id="opdracht-titel">Opdracht</h2>
+        <button id="btn-opdracht-sluiten" class="opdracht-sluit-btn" title="Sluiten (opdracht blijft actief)">✕</button>
+      </div>
+      <div id="opdracht-afbeelding-wrap" class="hidden">
+        <img id="opdracht-afbeelding" src="" alt="">
+      </div>
+      <p id="opdracht-tekst"></p>
+
+      <!-- Timer (aftellend) -->
+      <div id="opdracht-timer" class="opdracht-timer hidden">
+        <span class="timer-label">⏱ Resterende tijd:</span>
+        <span id="timer-display" class="timer-value">00:00</span>
+      </div>
+
+      <!-- Beloning / straf info -->
+      <div id="opdracht-beloning-wrap" class="hidden">
+        <div id="opdracht-beloning" class="beloning-badge beloning"></div>
+      </div>
+      <div id="opdracht-straf-wrap" class="hidden">
+        <div id="opdracht-straf" class="beloning-badge straf"></div>
+      </div>
+
+      <button id="btn-opdracht-klaar" class="btn-klaar">✓ Voltooid!</button>
+      <button id="btn-opdracht-uitstellen" class="btn-uitstellen">Later bekijken ›</button>
+    </div>
+  </div>
+
+  <!-- Resultaat overlay (beloning of straf na opdracht) -->
+  <div id="resultaat-overlay" class="resultaat-overlay hidden">
+    <div class="resultaat-card">
+      <div id="resultaat-emoji" class="resultaat-emoji">🎉</div>
+      <h2 id="resultaat-titel">Goed gedaan!</h2>
+      <p id="resultaat-tekst"></p>
+      <button id="btn-resultaat-sluiten" class="btn-klaar">Verder →</button>
+    </div>
+  </div>
+
+  <!-- Opdrachten knop -->
+  <button id="btn-geschiedenis">
+    📋 Opdrachten
+    <span id="geschiedenis-badge">0</span>
+  </button>
+
+  <!-- Opdrachten geschiedenis panel -->
+  <div id="geschiedenis-panel">
+    <div class="panel-handle">
+      <h3>📋 Ontvangen opdrachten</h3>
+      <button class="panel-close" id="btn-sluit-geschiedenis">✕</button>
+    </div>
+    <div id="geschiedenis-lijst">
+      <p class="geen-opdrachten">Nog geen opdrachten ontvangen.</p>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <span id="gps-indicator" class="gps-dot gps-searching"></span>
+    <span id="gps-label">GPS zoeken…</span>
+    <span class="status-sep">|</span>
+    <span id="sync-label">Verbinden…</span>
+  </div>
+
+  <audio id="audio-player" preload="auto"></audio>
+</div>
+
+<script>
+'use strict';
+
+var map = null;
+var audioUnlocked = false;
+var audioPlayer = document.getElementById('audio-player');
+var currentPos = null;
+var activeRoute = { coords: [], id: null, startLat: null, startLon: null, eindLat: null, eindLon: null };
+var offRouteStart = null;
+var isOffRoute = false;
+var settings = {};
+var activeOpdracht = null;
+var completedIds = {};
+var pendingOpdrachten = [];
+var ontvangen = [];
+var audioCache = {};
+var navStappen = [];
+var huidigStapIdx = 0;
+var timerInterval = null;
+var timerResterend = 0;
+var routeZichtbaar = false;   // route standaard NIET zichtbaar totdat actief
+var herbereken_timer = null;  // interval voor herberekening terugkeerroute
+var herbereken_bezig = false; // voorkom parallelle OSRM calls
+var lastHerbereken = { lat: null, lon: null }; // skip als positie nauwelijks veranderd
+var startMarker = null;       // MapLibre HTML marker start
+var finishMarker = null;      // MapLibre HTML marker finish
+var hoofdNavStappen = [];     // stappen van de HOOFD route (voor navigatie op route)
+var huidigHoofdStapIdx = 0;
+
+// ─── START ────────────────────────────────────────────
+document.getElementById('btn-start-rit').addEventListener('click', function() {
+  try {
+    audioPlayer.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    audioPlayer.play().catch(function(){});
+    audioUnlocked = true;
+  } catch(e) {}
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  initApp();
+});
+
+// ─── GESCHIEDENIS PANEL ───────────────────────────────
+document.getElementById('btn-geschiedenis').addEventListener('click', function() {
+  document.getElementById('geschiedenis-panel').classList.add('open');
+});
+document.getElementById('btn-sluit-geschiedenis').addEventListener('click', function() {
+  document.getElementById('geschiedenis-panel').classList.remove('open');
+});
+
+// ─── BERICHT SLUITEN ─────────────────────────────────
+document.getElementById('btn-bericht-sluiten').addEventListener('click', function() {
+  document.getElementById('bericht-overlay').classList.add('hidden');
+});
+
+// ─── OPDRACHT SLUITEN (zonder voltooien) ─────────────
+document.getElementById('btn-opdracht-sluiten').addEventListener('click', function() {
+  document.getElementById('opdracht-overlay').classList.add('hidden');
+  // activeOpdracht blijft actief — timer loopt door, locatiecheck ook
+});
+document.getElementById('btn-opdracht-uitstellen').addEventListener('click', function() {
+  document.getElementById('opdracht-overlay').classList.add('hidden');
+});
+
+// ─── RESULTAAT SLUITEN ───────────────────────────────
+document.getElementById('btn-resultaat-sluiten').addEventListener('click', function() {
+  document.getElementById('resultaat-overlay').classList.add('hidden');
+});
+
+// ─── INIT ─────────────────────────────────────────────
+async function initApp() {
+  loadSettings();
+  SettingsStore.load().then(function() { loadSettings(); }).catch(function(){});
+  initMap();
+  startGPS();
+  loadActiveRoute().catch(function(e){ console.warn('route laden:', e); });
+  loadPendingOpdrachten().catch(function(e){ console.warn('opdrachten laden:', e); });
+  loadAudioCatalog().catch(function(e){});
+  SignalBus.startPolling(2500);
+  bindSignals();
+  requestWakeLock();
+  setInterval(syncLoop, 6000);
+  document.getElementById('sync-label').textContent = 'Verbonden';
+}
+
+function loadSettings() {
+  settings = {
+    afwijkingDrempel:     SettingsStore.get('afwijking_drempel', 500),
+    wachttijd:            SettingsStore.get('wachttijd', 30),
+    locatieZichtbaarDuur: SettingsStore.get('locatie_zichtbaar_duur', 0),
+    terughaalActief:      SettingsStore.get('terughaal_actief', true),
+    kaartstijl:           SettingsStore.get('kaartstijl', 'https://tiles.openfreemap.org/styles/liberty'),
+  };
+}
+
+// ─── KAART ────────────────────────────────────────────
+function initMap() {
+  try {
+    map = new maplibregl.Map({
+      container: 'map',
+      style: settings.kaartstijl,
+      center: [5.2913, 52.1326],
+      zoom: 9,
+      attributionControl: false,
+    });
+    map.once('load', function() {
+      map.resize();
+      hidePOILayers();
+      addSpelerLayers();
+      if (activeRoute.coords.length) drawRoute();
+    });
+    setTimeout(function() { if (map) map.resize(); }, 200);
+    setTimeout(function() { if (map) map.resize(); }, 800);
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+  } catch(e) {
+    console.error('Kaart init fout:', e);
+    document.getElementById('sync-label').textContent = 'Kaart fout: ' + e.message;
+  }
+}
+
+function hidePOILayers() {
+  if (!map || !map.getStyle()) return;
+  var poi = ['poi','shop','restaurant','cafe','hotel','amenity','worship','transit','airport','station','parking'];
+  try {
+    (map.getStyle().layers || []).forEach(function(layer) {
+      if (layer.type !== 'symbol') return;
+      var lid = layer.id.toLowerCase();
+      if (lid.includes('place')||lid.includes('road')||lid.includes('street')||
+          lid.includes('highway')||lid.includes('city')||lid.includes('town')||
+          lid.includes('village')||lid.includes('country')||lid.includes('water')||
+          lid.includes('label')||lid.includes('name')||lid.includes('state')) return;
+      if (poi.some(function(k){ return lid.includes(k); })) {
+        try { map.setLayoutProperty(layer.id, 'visibility', 'none'); } catch(e){}
+      }
+    });
+  } catch(e){}
+}
+
+function addSpelerLayers() {
+  try {
+    // Originele route — blauw, standaard verborgen
+    map.addSource('speler-route', { type: 'geojson', data: emptyLine() });
+    map.addLayer({ id: 'speler-route-bg', type: 'line', source: 'speler-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#1d4ed8', 'line-width': 9, 'line-opacity': 0 } });
+    map.addLayer({ id: 'speler-route-line', type: 'line', source: 'speler-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#3b82f6', 'line-width': 5, 'line-opacity': 0 } });
+
+    // Terugkeer route — rood
+    map.addSource('return-route', { type: 'geojson', data: emptyLine() });
+    map.addLayer({ id: 'return-route-bg', type: 'line', source: 'return-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#991b1b', 'line-width': 9, 'line-opacity': 0 } });
+    map.addLayer({ id: 'return-route-line', type: 'line', source: 'return-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#ef4444', 'line-width': 5, 'line-opacity': 0 } });
+
+    // Eigen positie dot — alleen zichtbaar bij routeafwijking
+    map.addSource('player-pos', { type: 'geojson', data: emptyFC() });
+    map.addLayer({ id: 'player-dot', type: 'circle', source: 'player-pos',
+      paint: { 'circle-radius': 10, 'circle-color': '#3b82f6',
+               'circle-stroke-width': 3, 'circle-stroke-color': '#fff',
+               'circle-opacity': 0, 'circle-stroke-opacity': 0 } });
+
+  } catch(e) { console.warn('Speler layers fout:', e); }
+}
+
+function emptyLine() { return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }; }
+function emptyFC()   { return { type: 'FeatureCollection', features: [] }; }
+function pointFC(lon, lat) {
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] } }] };
+}
+
+// ─── GPS ──────────────────────────────────────────────
+function startGPS() {
+  if (!navigator.geolocation) { document.getElementById('gps-label').textContent = 'Geen GPS'; return; }
+  navigator.geolocation.watchPosition(onGPS, onGPSError, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+}
+
+function onGPS(pos) {
+  var lat = pos.coords.latitude, lon = pos.coords.longitude;
+  var acc = pos.coords.accuracy, spd = pos.coords.speed, hdg = pos.coords.heading;
+
+  var dot = document.getElementById('gps-indicator');
+  dot.className = 'gps-dot ' + (acc < 30 ? 'gps-good' : acc < 100 ? 'gps-ok' : 'gps-weak');
+  document.getElementById('gps-label').textContent = 'GPS ±' + Math.round(acc) + 'm';
+
+  PositieStore.push(lat, lon, acc, spd, hdg);
+
+  if (!currentPos) map.flyTo({ center: [lon, lat], zoom: 14 });
+  currentPos = { lat: lat, lon: lon };
+
+  // Eigen positie bijhouden (dot alleen zichtbaar bij afwijking)
+  if (map && map.getSource('player-pos')) {
+    try { map.getSource('player-pos').setData(pointFC(lon, lat)); } catch(e){}
+  }
+
+  // Navigatie stap — terugkeerroute OF hoofdroute
+  if (isOffRoute && navStappen.length) {
+    updateNavStap(lat, lon, navStappen, 'offroute');
+  } else if (!isOffRoute && hoofdNavStappen.length) {
+    updateNavStap(lat, lon, hoofdNavStappen, 'hoofd');
+  }
+
+  // Route afwijking check
+  if (settings.terughaalActief && activeRoute.coords.length > 1) checkRouteDeviation(lat, lon);
+
+  // Locatie-opdrachten check
+  checkLocationOpdrachten(lat, lon);
+
+  // Timer-opdracht: check aankomst op eindlocatie
+  if (activeOpdracht && activeOpdracht.stop_bij_locatie &&
+      activeOpdracht.stop_lat && activeOpdracht.stop_lon) {
+    var dist = haversineM(lat, lon, parseFloat(activeOpdracht.stop_lat), parseFloat(activeOpdracht.stop_lon));
+    if (dist < (activeOpdracht.stop_straal || 150)) {
+      voltooiOpdracht(activeOpdracht, true);
+    }
+  }
+}
+
+function onGPSError(err) {
+  document.getElementById('gps-indicator').className = 'gps-dot gps-error';
+  var msgs = { 1:'GPS geweigerd', 2:'GPS niet beschikbaar', 3:'GPS timeout' };
+  document.getElementById('gps-label').textContent = msgs[err.code] || 'GPS fout';
+}
+
+// ─── ROUTE AFWIJKING ──────────────────────────────────
+function checkRouteDeviation(lat, lon) {
+  var dist = distanceToRoute(lat, lon, activeRoute.coords);
+  var drempel = settings.afwijkingDrempel || 500;
+  var wachttijdMs = (settings.wachttijd || 30) * 1000;
+  if (dist > drempel) {
+    if (!offRouteStart) offRouteStart = Date.now();
+    if (!isOffRoute && (Date.now() - offRouteStart) >= wachttijdMs) triggerOffRoute(lat, lon);
+  } else {
+    if (isOffRoute) { if (dist < drempel * 0.65) clearOffRoute(); }
+    else offRouteStart = null;
+  }
+}
+
+async function triggerOffRoute(lat, lon) {
+  isOffRoute = true;
+  document.getElementById('route-alert').classList.remove('hidden');
+  try {
+    map.setPaintProperty('player-dot', 'circle-opacity', 1);
+    map.setPaintProperty('player-dot', 'circle-stroke-opacity', 1);
+  } catch(e){}
+  SignalBus.send('van_route_af', { lat: lat, lon: lon, timestamp: Date.now() });
+  await berekenTerugkeerRoute(lat, lon);
+  // Herbereken elke seconde — maar alleen als positie minstens 10m is verschoven
+  if (herbereken_timer) clearInterval(herbereken_timer);
+  herbereken_timer = setInterval(function() {
+    if (!isOffRoute || !currentPos) { clearInterval(herbereken_timer); herbereken_timer = null; return; }
+    var moved = !lastHerbereken.lat ||
+      haversineM(currentPos.lat, currentPos.lon, lastHerbereken.lat, lastHerbereken.lon) > 10;
+    if (moved && !herbereken_bezig) {
+      lastHerbereken = { lat: currentPos.lat, lon: currentPos.lon };
+      berekenTerugkeerRoute(currentPos.lat, currentPos.lon);
+    }
+  }, 1000);
+}
+
+async function berekenTerugkeerRoute(lat, lon) {
+  herbereken_bezig = true;
+  try {
+    var closest = closestRoutePoint(lat, lon, activeRoute.coords);
+    var route = await osrmRoute([{ lat: lat, lon: lon }, { lat: closest[1], lon: closest[0] }]);
+    if (map && map.getSource('return-route')) {
+      map.getSource('return-route').setData({ type: 'Feature', geometry: route.geometry });
+      map.setPaintProperty('return-route-line', 'line-opacity', 0.9);
+      map.setPaintProperty('return-route-bg',  'line-opacity', 0.3);
+    }
+    // Verzamel alle stappen van alle legs
+    var nieuwStappen = (route.legs || []).reduce(function(acc, l) { return acc.concat(l.steps || []); }, []);
+    // Reset stapindex alleen als er een significante herberekening is (andere stappen)
+    navStappen = nieuwStappen;
+    huidigStapIdx = 0;
+    document.getElementById('nav-totaal-afstand').textContent = formatAfstand(route.distance || 0) + ' terug';
+    document.getElementById('nav-totaal-tijd').textContent = '~' + formatTijd(route.duration || 0);
+    document.getElementById('nav-banner').classList.add('actief');
+    if (currentPos) updateNavStap(currentPos.lat, currentPos.lon, navStappen, 'offroute');
+    document.querySelector('.route-alert .alert-sub').textContent = 'Volg de rode route terug';
+  } catch(e) {
+    // stil falen — geen toast spam
+  } finally {
+    herbereken_bezig = false;
+  }
+}
+
+function clearOffRoute() {
+  isOffRoute = false;
+  offRouteStart = null;
+  navStappen = [];
+  huidigStapIdx = 0;
+  if (herbereken_timer) { clearInterval(herbereken_timer); herbereken_timer = null; }
+  document.getElementById('route-alert').classList.add('hidden');
+  // Verberg eigen locatie dot
+  try {
+    map.setPaintProperty('player-dot', 'circle-opacity', 0);
+    map.setPaintProperty('player-dot', 'circle-stroke-opacity', 0);
+  } catch(e){}
+  try {
+    if (map && map.getSource('return-route')) {
+      map.getSource('return-route').setData(emptyLine());
+      map.setPaintProperty('return-route-line', 'line-opacity', 0);
+      map.setPaintProperty('return-route-bg',  'line-opacity', 0);
+    }
+  } catch(e){}
+  // Herstel hoofd-navigatiebanner als er een hoofdroute is
+  if (hoofdNavStappen.length) {
+    document.getElementById('nav-banner').classList.add('actief');
+    if (currentPos) updateNavStap(currentPos.lat, currentPos.lon, hoofdNavStappen, 'hoofd');
+  } else {
+    document.getElementById('nav-banner').classList.remove('actief');
+  }
+  SignalBus.send('terug_op_route', { timestamp: Date.now() });
+}
+
+function closestRoutePoint(lat, lon, coords) {
+  var best = coords[0], bestD = Infinity;
+  coords.forEach(function(c) {
+    var d = haversineM(lat, lon, c[1], c[0]);
+    if (d < bestD) { bestD = d; best = c; }
+  });
+  return best;
+}
+
+// ─── NAVIGATIE INSTRUCTIES ────────────────────────────
+// SVG pijlen voor navigatie — veel duidelijker dan unicode tekens
+var NAV_SVG = {
+  rechtdoor:     '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M32 52V12" stroke="white" stroke-width="7" stroke-linecap="round"/><path d="M18 26L32 12L46 26" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  links:         '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M44 52V36H24" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M36 24L24 36L36 48" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  rechts:        '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 52V36H40" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 24L40 36L28 48" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  scherpLinks:   '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M44 52V20H20" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M32 8L20 20L32 32" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  scherpRechts:  '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 52V20H44" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M32 8L44 20L32 32" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  lichtLinks:    '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M44 52V30C44 24 40 20 34 20H20" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 8L20 20L30 32" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  lichtRechts:   '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 52V30C20 24 24 20 30 20H44" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M34 8L44 20L34 32" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  rotonde:       '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="12" stroke="white" stroke-width="6"/><path d="M32 20V10" stroke="white" stroke-width="6" stroke-linecap="round"/><path d="M22 14L32 10L38 20" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  aankomst:      '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="14" stroke="white" stroke-width="6"/><circle cx="32" cy="32" r="5" fill="white"/></svg>',
+  vertrek:       '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M32 52V12" stroke="white" stroke-width="7" stroke-linecap="round"/><path d="M18 26L32 12L46 26" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+
+function stapInfo(stap, volgende, afstandM) {
+  if (!stap) return { svg: NAV_SVG.rechtdoor, tekst: 'Rijd rechtdoor', kleur: '#3b82f6' };
+  var m = (stap.maneuver && stap.maneuver.modifier) ? stap.maneuver.modifier : '';
+  var t = (stap.maneuver && stap.maneuver.type)     ? stap.maneuver.type     : '';
+  var naam = stap.name || '';
+  var ref  = (stap.ref)  ? stap.ref  : '';   // wegnummer bijv. A10, N44
+
+  // Bouw straatlabel: wegnummer heeft voorrang
+  var label = ref ? ref : naam;
+
+  // Speciale gevallen
+  if (t === 'arrive')   return { svg: NAV_SVG.aankomst, tekst: 'Bestemming bereikt', kleur: '#22c55e' };
+  if (t === 'depart')   return { svg: NAV_SVG.vertrek,  tekst: label ? 'Rij via ' + label : 'Vertrek', kleur: '#3b82f6' };
+
+  if (t === 'roundabout' || t === 'rotary') {
+    var exitNr = (stap.maneuver && stap.maneuver.exit) ? stap.maneuver.exit : '';
+    var exitLabel = exitNr ? 'Neem afslag ' + exitNr : 'Rotonde';
+    if (volgende && volgende.name) exitLabel += ' richting ' + volgende.name;
+    return { svg: NAV_SVG.rotonde, tekst: exitLabel, kleur: '#f59e0b' };
+  }
+
+  // Afrit / motorway junction
+  if (t === 'off ramp' || t === 'on ramp') {
+    var richtingLabel = (volgende && volgende.name) ? ' richting ' + volgende.name : '';
+    return { svg: m.includes('left') ? NAV_SVG.lichtLinks : NAV_SVG.lichtRechts,
+             tekst: 'Afrit' + richtingLabel, kleur: '#f59e0b' };
+  }
+
+  if (t === 'fork') {
+    var forkLabel = m.includes('left') ? 'Houd links aan' : 'Houd rechts aan';
+    if (label) forkLabel += ' — ' + label;
+    return { svg: m.includes('left') ? NAV_SVG.lichtLinks : NAV_SVG.lichtRechts,
+             tekst: forkLabel, kleur: '#f59e0b' };
+  }
+
+  var tbl = {
+    'left':         { svg: NAV_SVG.links,        tekst: 'Sla linksaf',     kleur: '#ef4444' },
+    'right':        { svg: NAV_SVG.rechts,       tekst: 'Sla rechtsaf',    kleur: '#ef4444' },
+    'sharp left':   { svg: NAV_SVG.scherpLinks,  tekst: 'Scherp linksaf',  kleur: '#ef4444' },
+    'sharp right':  { svg: NAV_SVG.scherpRechts, tekst: 'Scherp rechtsaf', kleur: '#ef4444' },
+    'slight left':  { svg: NAV_SVG.lichtLinks,   tekst: 'Licht linksaf',   kleur: '#f59e0b' },
+    'slight right': { svg: NAV_SVG.lichtRechts,  tekst: 'Licht rechtsaf',  kleur: '#f59e0b' },
+    'straight':     { svg: NAV_SVG.rechtdoor,    tekst: 'Ga rechtdoor',    kleur: '#3b82f6' },
+    'uturn':        { svg: NAV_SVG.scherpLinks,  tekst: 'U-bocht',         kleur: '#ef4444' },
+  };
+  var info = Object.assign({}, tbl[m] || { svg: NAV_SVG.rechtdoor, tekst: 'Rijd rechtdoor', kleur: '#3b82f6' });
+  if (label) info.tekst += ' — ' + label;
+  return info;
+}
+
+function updateNavStap(lat, lon, stappen, mode) {
+  if (!stappen || !stappen.length) return;
+  var idx = (mode === 'offroute') ? huidigStapIdx : huidigHoofdStapIdx;
+
+  // Zoek de correcte stap op basis van maneuver.location
+  // OSRM geeft elke stap een maneuver.location [lon,lat] = het PUNT waar de manoeuvre plaatsvindt
+  // De afstand die we tonen = afstand van huidige positie TOT het maneuver-punt van de VOLGENDE stap
+  // Stap overslaan als we het maneuver-punt van de huidige stap zijn gepasseerd (< 30m)
+  while (idx < stappen.length - 1) {
+    var huidige = stappen[idx];
+    var volgendStap = stappen[idx + 1];
+    if (!volgendStap || !volgendStap.maneuver || !volgendStap.maneuver.location) break;
+    var loc = volgendStap.maneuver.location; // [lon, lat]
+    var distTotVolgende = haversineM(lat, lon, loc[1], loc[0]);
+    // Sla stap over als we het maneuver-punt van de volgende stap al heel dichtbij zijn
+    if (distTotVolgende < 20) {
+      idx++;
+      if (mode === 'offroute') huidigStapIdx = idx;
+      else huidigHoofdStapIdx = idx;
+    } else {
+      break;
+    }
+  }
+
+  var stap = stappen[idx];
+  if (!stap) return;
+
+  // Afstand = afstand tot het maneuver-punt van de VOLGENDE stap (= waar je moet afslaan)
+  var volgende = stappen[idx + 1] || null;
+  var afstand = stap.distance || 0;
+  if (volgende && volgende.maneuver && volgende.maneuver.location) {
+    var loc2 = volgende.maneuver.location;
+    afstand = haversineM(lat, lon, loc2[1], loc2[0]);
+  } else if (stap.maneuver && stap.maneuver.location) {
+    // Laatste stap: afstand tot maneuver-punt van huidige stap
+    var loc3 = stap.maneuver.location;
+    afstand = haversineM(lat, lon, loc3[1], loc3[0]);
+  }
+
+  var info = stapInfo(stap, volgende, afstand);
+  var pijlEl = document.getElementById('nav-pijl');
+  pijlEl.innerHTML = info.svg;
+  pijlEl.style.background = info.kleur;
+  document.getElementById('nav-tekst').textContent   = info.tekst;
+  document.getElementById('nav-afstand').textContent = formatAfstand(afstand);
+}
+
+function formatAfstand(m) { return m < 1000 ? Math.round(m) + ' m' : (m/1000).toFixed(1) + ' km'; }
+function formatTijd(s)     { var min = Math.round(s/60); return min < 60 ? min + ' min' : Math.floor(min/60) + 'u ' + (min%60) + 'min'; }
+
+// ─── ROUTE LADEN & TEKENEN ────────────────────────────
+async function loadActiveRoute() {
+  var r = await API.get('aok_routes', 'limit=20&actief=eq.true');
+  var routes = (r.data || []);
+  if (!routes.length) {
+    // Geen actieve route: verberg alles
+    verbergVlaggen();
+    hoofdNavStappen = []; huidigHoofdStapIdx = 0;
+    if (!isOffRoute) document.getElementById('nav-banner').classList.remove('actief');
+    return;
+  }
+  var actief = routes[0];
+  // Niet opnieuw laden als dezelfde route al actief is
+  if (actief.id === activeRoute.id && activeRoute.coords.length) return;
+
+  activeRoute.id = actief.id;
+  activeRoute.coords = [];
+  activeRoute.waypoints_raw = [];
+  if (actief.geojson) {
+    try { var geo = JSON.parse(actief.geojson); activeRoute.coords = geo.coordinates || []; } catch(e){}
+  }
+  // Waypoints voor start/finish markers
+  var wps = [];
+  if (actief.waypoints) {
+    try { wps = JSON.parse(actief.waypoints); } catch(e){}
+  }
+  if (wps && wps.length >= 2) {
+    activeRoute.startLat = wps[0].lat; activeRoute.startLon = wps[0].lon;
+    activeRoute.eindLat  = wps[wps.length-1].lat; activeRoute.eindLon = wps[wps.length-1].lon;
+    activeRoute.waypoints_raw = wps;
+  } else if (activeRoute.coords.length >= 2) {
+    var c0 = activeRoute.coords[0];
+    var cN = activeRoute.coords[activeRoute.coords.length-1];
+    activeRoute.startLat = c0[1]; activeRoute.startLon = c0[0];
+    activeRoute.eindLat  = cN[1]; activeRoute.eindLon  = cN[0];
+  }
+
+  // Route is actief — altijd zichtbaar
+  routeZichtbaar = true;
+  toonVlaggen();
+  drawRoute();
+
+  // Bereken hoofd-navigatiestappen via OSRM
+  if (activeRoute.waypoints_raw.length >= 2) {
+    try {
+      var hoofdRoute = await osrmRoute(activeRoute.waypoints_raw);
+      hoofdNavStappen = (hoofdRoute.legs || []).reduce(function(acc, l) { return acc.concat(l.steps || []); }, []);
+      huidigHoofdStapIdx = 0;
+      document.getElementById('nav-totaal-afstand').textContent = formatAfstand(hoofdRoute.distance || 0);
+      document.getElementById('nav-totaal-tijd').textContent = '~' + formatTijd(hoofdRoute.duration || 0);
+      document.getElementById('nav-banner').classList.add('actief');
+      if (currentPos) updateNavStap(currentPos.lat, currentPos.lon, hoofdNavStappen, 'hoofd');
+    } catch(e) { console.warn('Hoofd nav fout:', e); }
+  }
+}
+
+function toonVlaggen() {
+  if (!map) return;
+  // Verwijder oude markers
+  verbergVlaggen();
+  // Start marker — groen bord
+  if (activeRoute.startLat) {
+    var startEl = document.createElement('div');
+    startEl.className = 'kaart-marker kaart-marker-start';
+    startEl.innerHTML = '<div class="marker-bord marker-start-bord">START</div><div class="marker-paal"></div>';
+    startMarker = new maplibregl.Marker({ element: startEl, anchor: 'bottom' })
+      .setLngLat([activeRoute.startLon, activeRoute.startLat])
+      .addTo(map);
+  }
+  // Finish marker — geblokt bordje met vlag
+  if (activeRoute.eindLat) {
+    var finishEl = document.createElement('div');
+    finishEl.className = 'kaart-marker kaart-marker-finish';
+    finishEl.innerHTML = '<div class="marker-vlag-wrap"><div class="marker-vlag-blok"></div><div class="marker-vlag-label">FINISH</div></div><div class="marker-paal"></div>';
+    finishMarker = new maplibregl.Marker({ element: finishEl, anchor: 'bottom' })
+      .setLngLat([activeRoute.eindLon, activeRoute.eindLat])
+      .addTo(map);
+  }
+}
+
+function verbergVlaggen() {
+  if (startMarker)  { startMarker.remove();  startMarker  = null; }
+  if (finishMarker) { finishMarker.remove(); finishMarker = null; }
+}
+
+function drawRoute() {
+  if (!map || !map.getSource('speler-route')) return;
+  try {
+    map.getSource('speler-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coords } });
+    var o = routeZichtbaar ? 0.85 : 0;
+    map.setPaintProperty('speler-route-line', 'line-opacity', o);
+    map.setPaintProperty('speler-route-bg',   'line-opacity', o > 0 ? 0.25 : 0);
+  } catch(e){}
+}
+
+// ─── OPDRACHTEN ───────────────────────────────────────
+async function loadPendingOpdrachten() {
+  var r = await API.get('aok_opdrachten', 'limit=100');
+  pendingOpdrachten = (r.data || []).filter(function(o) { return o.status !== 'voltooid'; });
+  pendingOpdrachten.filter(function(o) { return o.type === 'tijd'; }).forEach(scheduleTijdOpdracht);
+}
+
+function scheduleTijdOpdracht(o) {
+  if (o.trigger_minuten > 0) {
+    setTimeout(function() { showOpdracht(o); }, o.trigger_minuten * 60000);
+  } else if (o.trigger_tijd) {
+    var now = new Date(), parts = o.trigger_tijd.split(':');
+    var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), +parts[0], +parts[1], 0);
+    var diff = target - now;
+    if (diff > 0) setTimeout(function() { showOpdracht(o); }, diff);
+    else if (diff > -300000) showOpdracht(o);
+  }
+}
+
+function checkLocationOpdrachten(lat, lon) {
+  pendingOpdrachten.forEach(function(o) {
+    if (o.type !== 'locatie' || completedIds[o.id] || !o.lat || !o.lon) return;
+    if (haversineM(lat, lon, o.lat, o.lon) <= (o.straal || 200)) showOpdracht(o);
+  });
+}
+
+function showOpdracht(o) {
+  if (completedIds[o.id]) return;
+  if (activeOpdracht && activeOpdracht.id === o.id) return;
+  activeOpdracht = o;
+
+  document.getElementById('opdracht-titel').textContent = o.titel || 'Nieuwe opdracht';
+  document.getElementById('opdracht-tekst').textContent = o.tekst || '';
+
+  // Afbeelding
+  var imgWrap = document.getElementById('opdracht-afbeelding-wrap');
+  if (o.afbeelding_url) { document.getElementById('opdracht-afbeelding').src = o.afbeelding_url; imgWrap.classList.remove('hidden'); }
+  else imgWrap.classList.add('hidden');
+
+  // Timer
+  stopTimer();
+  var timerWrap = document.getElementById('opdracht-timer');
+  if (o.timer_seconden && o.timer_seconden > 0) {
+    timerResterend = parseInt(o.timer_seconden);
+    updateTimerDisplay();
+    timerWrap.classList.remove('hidden');
+    timerInterval = setInterval(function() {
+      timerResterend--;
+      updateTimerDisplay();
+      if (timerResterend <= 0) {
+        stopTimer();
+        voltooiOpdracht(o, false); // tijd op = gefaald
+      }
+    }, 1000);
+  } else { timerWrap.classList.add('hidden'); }
+
+  // Beloning
+  var beloningWrap = document.getElementById('opdracht-beloning-wrap');
+  var strafWrap    = document.getElementById('opdracht-straf-wrap');
+  if (o.beloning) {
+    document.getElementById('opdracht-beloning').textContent = '🏆 Beloning: ' + o.beloning;
+    beloningWrap.classList.remove('hidden');
+  } else beloningWrap.classList.add('hidden');
+  if (o.straf) {
+    document.getElementById('opdracht-straf').textContent = '⚡ Straf bij falen: ' + o.straf;
+    strafWrap.classList.remove('hidden');
+  } else strafWrap.classList.add('hidden');
+
+  if (o.audio_id) playAudioById(o.audio_id);
+  document.getElementById('opdracht-overlay').classList.remove('hidden');
+  SignalBus.send('opdracht_gezien', { id: o.id, timestamp: Date.now() });
+
+  // Voeg toe aan geschiedenis
+  if (!ontvangen.find(function(x) { return x.id === o.id; })) {
+    ontvangen.push({ id: o.id, titel: o.titel, tekst: o.tekst, status: 'ontvangen' });
+    updateGeschiedenisBadge();
+    renderGeschiedenisList();
+  }
+}
+
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function updateTimerDisplay() {
+  var m = Math.floor(timerResterend / 60);
+  var s = timerResterend % 60;
+  document.getElementById('timer-display').textContent =
+    String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  // Rood knipperen als < 30 sec
+  document.getElementById('timer-display').style.color = timerResterend < 30 ? '#ef4444' : '#1e3a5f';
+}
+
+async function voltooiOpdracht(o, succes) {
+  if (completedIds[o.id]) return;
+  stopTimer();
+  completedIds[o.id] = true;
+  activeOpdracht = null;
+  document.getElementById('opdracht-overlay').classList.add('hidden');
+
+  // Update geschiedenis
+  var item = ontvangen.find(function(x) { return x.id === o.id; });
+  if (item) item.status = succes ? 'voltooid' : 'gefaald';
+  renderGeschiedenisList();
+
+  // Patch database
+  try { await API.patch('aok_opdrachten', o.id, { status: succes ? 'voltooid' : 'gefaald' }); } catch(e){}
+  SignalBus.send(succes ? 'opdracht_voltooid' : 'opdracht_gefaald', { id: o.id, timestamp: Date.now() });
+
+  // Toon resultaat overlay
+  toonResultaat(o, succes);
+
+  // Activeer vervolgRoute als ingesteld
+  if (succes && o.route_bij_succes) activeerRoute(o.route_bij_succes);
+  if (!succes && o.route_bij_falen) activeerRoute(o.route_bij_falen);
+}
+
+document.getElementById('btn-opdracht-klaar').addEventListener('click', function() {
+  if (!activeOpdracht) return;
+  voltooiOpdracht(activeOpdracht, true);
+});
+
+function toonResultaat(o, succes) {
+  var overlay = document.getElementById('resultaat-overlay');
+  document.getElementById('resultaat-emoji').textContent = succes ? '🎉' : '😬';
+  document.getElementById('resultaat-titel').textContent = succes ? 'Goed gedaan!' : 'Tijd is op!';
+  var tekst = succes
+    ? (o.beloning ? 'Jullie ontvangen: ' + o.beloning : 'Opdracht voltooid!')
+    : (o.straf    ? 'Jullie krijgen: '   + o.straf    : 'De opdracht is mislukt.');
+  document.getElementById('resultaat-tekst').textContent = tekst;
+  overlay.classList.remove('hidden');
+}
+
+async function activeerRoute(routeId) {
+  try {
+    // Deactiveer huidige actieve routes
+    var r = await API.get('aok_routes', 'actief=eq.true&limit=10');
+    for (var i = 0; i < (r.data || []).length; i++) {
+      await API.patch('aok_routes', r.data[i].id, { actief: false });
+    }
+    await API.patch('aok_routes', routeId, { actief: true });
+    SignalBus.send('route_bijgewerkt', { route_id: routeId });
+    loadActiveRoute().catch(function(){});
+  } catch(e) { console.warn('Route activeren mislukt:', e); }
+}
+
+// ─── GESCHIEDENIS ─────────────────────────────────────
+function updateGeschiedenisBadge() {
+  document.getElementById('geschiedenis-badge').textContent = ontvangen.length;
+}
+function renderGeschiedenisList() {
+  var lijst = document.getElementById('geschiedenis-lijst');
+  if (!ontvangen.length) { lijst.innerHTML = '<p class="geen-opdrachten">Nog geen opdrachten ontvangen.</p>'; return; }
+  lijst.innerHTML = ontvangen.map(function(o) {
+    var cls = o.status === 'voltooid' ? 'voltooid' : o.status === 'gefaald' ? 'gefaald' : '';
+    var icoon = o.status === 'voltooid' ? '✅' : o.status === 'gefaald' ? '❌' : '📋';
+    var statusTekst = o.status === 'voltooid' ? '✓ Voltooid' : o.status === 'gefaald' ? '✗ Mislukt' : '● Ontvangen';
+    return '<div class="gesch-item ' + cls + '">' +
+      '<div class="gesch-titel">' + icoon + ' ' + escHtml(o.titel||'—') + '</div>' +
+      (o.tekst ? '<div class="gesch-tekst">' + escHtml(o.tekst) + '</div>' : '') +
+      '<div class="gesch-status ' + cls + '">' + statusTekst + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ─── AUDIO ────────────────────────────────────────────
+async function loadAudioCatalog() {
+  var r = await API.get('aok_audio', 'limit=100');
+  (r.data||[]).forEach(function(a) { audioCache[a.id] = a; });
+}
+function playAudioById(id) { var a = audioCache[id]; if (a && a.url) playAudioUrl(a.url); }
+function playAudioUrl(url) {
+  if (!audioUnlocked) return;
+  try { audioPlayer.src = url; audioPlayer.play().catch(function(){}); } catch(e){}
+}
+
+// ─── SIGNALEN VAN REGIE ───────────────────────────────
+function bindSignals() {
+  SignalBus.on('toon_locatie',  function() {
+    try { map.setPaintProperty('player-dot','circle-opacity',1); map.setPaintProperty('player-dot','circle-stroke-opacity',1); } catch(e){}
+  });
+  SignalBus.on('verberg_locatie', function() {
+    if (!isOffRoute) {
+      try { map.setPaintProperty('player-dot','circle-opacity',0); map.setPaintProperty('player-dot','circle-stroke-opacity',0); } catch(e){}
+    }
+  });
+  SignalBus.on('toon_route', function() { routeZichtbaar = true;  drawRoute(); });
+  SignalBus.on('verberg_route', function() { routeZichtbaar = false; drawRoute(); });
+  SignalBus.on('speel_audio',  function(p) { playAudioUrl(p.url); });
+  SignalBus.on('toon_opdracht', function(p) { showOpdracht(p); });
+  SignalBus.on('bericht',  function(p) {
+    document.getElementById('bericht-tekst').textContent = p.tekst || '';
+    document.getElementById('bericht-overlay').classList.remove('hidden');
+    if (p.audio_url) playAudioUrl(p.audio_url);
+  });
+  SignalBus.on('route_bijgewerkt', function(p) {
+    // Reset volledig zodat loadActiveRoute de nieuwe route oppikt
+    activeRoute = { coords: [], id: null, startLat: null, startLon: null, eindLat: null, eindLon: null, waypoints_raw: [] };
+    hoofdNavStappen = []; huidigHoofdStapIdx = 0;
+    routeZichtbaar = false;
+    // Verberg oude route-lijn en markers
+    try {
+      if (map && map.getSource('speler-route')) {
+        map.getSource('speler-route').setData(emptyLine());
+        map.setPaintProperty('speler-route-line', 'line-opacity', 0);
+        map.setPaintProperty('speler-route-bg',   'line-opacity', 0);
+      }
+    } catch(e){}
+    verbergVlaggen();
+    loadActiveRoute().catch(function(){});
+  });
+  SignalBus.on('instellingen_bijgewerkt', function() {
+    SettingsStore.load().then(function() { loadSettings(); });
+  });
+  SignalBus.on('centreer_kaart', function(p) {
+    if (map && p && p.lat && p.lon) map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom || 12 });
+  });
+}
+
+async function syncLoop() {
+  try { await syncOpdrachten(); } catch(e){}
+}
+
+async function syncOpdrachten() {
+  var r = await API.get('aok_opdrachten', 'limit=100');
+  var nieuw = (r.data || []);
+  // Verwijder uit pendingOpdrachten als ze deleted zijn of niet meer bestaan
+  var nieuwIds = {};
+  nieuw.forEach(function(o) { nieuwIds[o.id] = o; });
+  pendingOpdrachten = nieuw.filter(function(o) { return !o.deleted && o.status !== 'voltooid'; });
+  // Sync ook de ontvangen-lijst: verwijder items die niet meer in de DB staan
+  ontvangen = ontvangen.filter(function(o) {
+    return !!nieuwIds[o.id]; // verwijderd uit DB → ook uit lijst
+  });
+  updateGeschiedenisBadge();
+  renderGeschiedenisList();
+  pendingOpdrachten.filter(function(o) { return o.type === 'tijd'; }).forEach(function(o) {
+    // Herplan alleen als nog niet gepland
+    if (!completedIds[o.id] && !o._gepland) {
+      o._gepland = true;
+      scheduleTijdOpdracht(o);
+    }
+  });
+}
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    var wl = await navigator.wakeLock.request('screen');
+    document.addEventListener('visibilitychange', async function() {
+      if (document.visibilityState === 'visible') try { wl = await navigator.wakeLock.request('screen'); } catch(e){}
+    });
+  } catch(e){}
+}
+</script>
+</body>
+</html>
