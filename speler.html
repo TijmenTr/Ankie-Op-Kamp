@@ -407,6 +407,8 @@ function updateSpelerPijl(lat, lon, heading) {
   if (!map) return;
   if (!spelerMarker) {
     spelerMarkerEl = maakSpelerPijlEl();
+    // Standaard verborgen — alleen zichtbaar als speler van route af is
+    spelerMarkerEl.style.display = 'none';
     spelerMarker = new maplibregl.Marker({ element: spelerMarkerEl, anchor: 'center' })
       .setLngLat([lon, lat])
       .addTo(map);
@@ -477,6 +479,8 @@ async function triggerOffRoute(lat, lon) {
   var alarmEl = document.getElementById('offroute-alarm');
   alarmEl.classList.remove('hidden');
   speelAlarmGeluid();
+  // Toon pijl-marker zodat speler zijn eigen positie ziet
+  if (spelerMarkerEl) spelerMarkerEl.style.display = '';
   // Toon volledige melding
   var alertEl = document.getElementById('route-alert');
   alertEl.querySelector('.route-alert-full').classList.remove('hidden');
@@ -556,8 +560,8 @@ function clearOffRoute() {
   alertEl.querySelector('.route-alert-full').classList.remove('hidden');
   alertEl.querySelector('.route-alert-compact').classList.add('hidden');
   document.getElementById('offroute-alarm').classList.add('hidden');
-  // Verberg eigen locatie dot
-  // pijl-marker is altijd zichtbaar — geen opacity toggle nodig
+  // Verberg pijl-marker weer: speler is terug op route
+  if (spelerMarkerEl) spelerMarkerEl.style.display = 'none';
   try {
     if (map && map.getSource('return-route')) {
       map.getSource('return-route').setData(emptyLine());

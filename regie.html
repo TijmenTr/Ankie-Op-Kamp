@@ -104,6 +104,26 @@
         <h3>Nieuwe route</h3>
         <div class="form-row"><label>Naam</label><input type="text" id="route-naam" placeholder="bijv. Aflevering 1 – Noord"></div>
         <div class="form-row"><label>Aflevering</label><input type="text" id="route-aflevering" placeholder="bijv. Afl. 1"></div>
+
+        <!-- Google Maps import -->
+        <div class="form-row gmaps-import-wrap">
+          <label>📍 Importeer uit Google Maps <span class="hint-inline">(optioneel)</span></label>
+          <div class="search-row">
+            <input type="url" id="gmaps-url" placeholder="Plak hier een Google Maps routelink…">
+            <button id="btn-gmaps-import" class="btn-secondary">↓ Importeer</button>
+          </div>
+          <p id="gmaps-status" class="hint hidden"></p>
+          <details class="gmaps-hint-details">
+            <summary>Hoe haal ik de link op?</summary>
+            <ol class="gmaps-hint-steps">
+              <li>Plan je route in Google Maps (met alle tussenstops)</li>
+              <li>Klik op <strong>Delen</strong> → <strong>Route kopiëren</strong><br><em>Of kopieer de URL uit de adresbalk</em></li>
+              <li>Plak de link hierboven en klik Importeer</li>
+            </ol>
+            <p class="hint">⚠️ Verkorte links (maps.app.goo.gl) werken niet — gebruik de volledige URL uit de adresbalk.</p>
+          </details>
+        </div>
+
         <div class="waypoints-section">
           <label>Tussenstops / Bestemmingen</label>
           <div class="search-row">
@@ -680,6 +700,109 @@ function initRoutePreviewMap() {
   } catch(e) { console.warn('Route preview map fout:', e); }
 }
 
+// ─── GOOGLE MAPS URL PARSER ───────────────────────────
+// Herkent 3 varianten:
+//   1. /maps/dir/Place1/Place2/...               (plaatsnamen of coördinaten in pad)
+//   2. /maps/dir/?api=1&origin=...&destination=...&waypoints=...  (query-params)
+//   3. /maps/dir/52.123,4.56/53.789,5.01/...    (coördinaten in pad)
+
+function isCoord(s) {
+  // Geeft {lat,lon} als s eruitziet als "52.123,4.567", anders null
+  var m = s.match(/^(-?\d+\.?\d*),(-?\d+\.?\d*)$/);
+  if (!m) return null;
+  var lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat: lat, lon: lon };
+}
+
+async function geocodeLabel(label) {
+  // Probeer eerst als coördinaat, anders Nominatim
+  var coord = isCoord(label);
+  if (coord) return Object.assign(coord, { label: label });
+  try {
+    var res = await nominatimSearch(label);
+    if (res && res.length) {
+      return { lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon), label: res[0].display_name };
+    }
+  } catch(e) {}
+  return null;
+}
+
+async function parseGoogleMapsUrl(url) {
+  // Geeft array van {lat, lon, label} of gooit Error met uitleg
+
+  var parsed;
+  try { parsed = new URL(url); } catch(e) { throw new Error('Geen geldige URL'); }
+
+  // Verkorte link — kan niet in browser-context worden gevolgd (CORS)
+  if (parsed.hostname === 'maps.app.goo.gl' || parsed.hostname === 'goo.gl') {
+    throw new Error('Verkorte links (maps.app.goo.gl) werken niet. Kopieer de volledige URL uit de adresbalk van Google Maps.');
+  }
+
+  if (!parsed.hostname.includes('google')) {
+    throw new Error('Dit lijkt geen Google Maps link. Gebruik een link van google.com/maps.');
+  }
+
+  // ── Variant 2: query-params (?api=1&origin=...&destination=...&waypoints=...) ──
+  var origin      = parsed.searchParams.get('origin');
+  var destination = parsed.searchParams.get('destination');
+  var waypointsQ  = parsed.searchParams.get('waypoints');  // pipe-gescheiden
+
+  if (origin && destination) {
+    var labels = [origin];
+    if (waypointsQ) labels = labels.concat(waypointsQ.split('|').map(function(s){ return s.trim(); }).filter(Boolean));
+    labels.push(destination);
+    return await geocodeLabels(labels);
+  }
+
+  // ── Variant 1 & 3: /maps/dir/A/B/C/... (pad-segmenten) ──
+  // Pad ziet eruit als: /maps/dir/Amsterdam/Leiden/Den+Haag/
+  var pathMatch = parsed.pathname.match(/\/maps\/dir\/(.+)/);
+  if (pathMatch) {
+    var segmenten = pathMatch[1].split('/').map(function(s) { return decodeURIComponent(s.replace(/\+/g, ' ')).trim(); })
+                               .filter(function(s) { return s.length > 0 && s !== 'dir'; });
+    if (segmenten.length < 2) throw new Error('Minder dan 2 punten gevonden in de link. Zorg dat de route minimaal een start- en eindpunt heeft.');
+    return await geocodeLabels(segmenten);
+  }
+
+  throw new Error('Geen routepunten gevonden in deze link. Zorg dat je een routelink deelt (niet een zoekresultaat of losse pin).');
+}
+
+async function geocodeLabels(labels) {
+  var statusEl = document.getElementById('gmaps-status');
+  statusEl.textContent = '📡 Adressen opzoeken (' + labels.length + ' punten)…';
+  statusEl.classList.remove('hidden');
+
+  var punten = [];
+  for (var i = 0; i < labels.length; i++) {
+    var lbl = labels[i];
+    statusEl.textContent = '📡 Punt ' + (i+1) + '/' + labels.length + ': ' + lbl.substring(0, 40) + '…';
+    var coord = isCoord(lbl);
+    if (coord) {
+      punten.push({ lat: coord.lat, lon: coord.lon, label: lbl });
+    } else {
+      try {
+        var res = await nominatimSearch(lbl);
+        if (res && res.length) {
+          punten.push({ lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon), label: res[0].display_name });
+        } else {
+          // Niet gevonden — sla over maar waarschuw
+          statusEl.textContent = '⚠️ "' + lbl + '" niet gevonden, overgeslagen';
+          await new Promise(function(r){ setTimeout(r, 1200); });
+        }
+      } catch(e) {
+        statusEl.textContent = '⚠️ Geocoding mislukt voor "' + lbl + '"';
+        await new Promise(function(r){ setTimeout(r, 1200); });
+      }
+    }
+    // Nominatim rate-limit: max 1 req/s
+    if (!isCoord(lbl) && i < labels.length - 1) await new Promise(function(r){ setTimeout(r, 1100); });
+  }
+
+  if (punten.length < 2) throw new Error('Te weinig punten gevonden (' + punten.length + '). Controleer de link of voeg punten handmatig toe.');
+  return punten;
+}
+
 function bindRouteUI() {
   document.getElementById('btn-nieuwe-route').addEventListener('click', function() {
     waypoints = [];
@@ -695,6 +818,37 @@ function bindRouteUI() {
   document.getElementById('btn-waypoint-zoeken').addEventListener('click', doWaypointSearch);
   document.getElementById('waypoint-search').addEventListener('keydown', function(e) { if (e.key === 'Enter') doWaypointSearch(); });
   document.getElementById('btn-route-opslaan').addEventListener('click', slaRouteOp);
+
+  // Google Maps import
+  document.getElementById('btn-gmaps-import').addEventListener('click', doGmapsImport);
+  document.getElementById('gmaps-url').addEventListener('keydown', function(e) { if (e.key === 'Enter') doGmapsImport(); });
+}
+
+async function doGmapsImport() {
+  var url = document.getElementById('gmaps-url').value.trim();
+  var statusEl = document.getElementById('gmaps-status');
+  if (!url) { statusEl.textContent = '⚠️ Plak eerst een Google Maps link'; statusEl.classList.remove('hidden'); return; }
+
+  var btn = document.getElementById('btn-gmaps-import');
+  btn.disabled = true;
+  btn.textContent = '⏳ Bezig…';
+  statusEl.classList.remove('hidden');
+  statusEl.textContent = '🔍 Link analyseren…';
+
+  try {
+    var gevondenPunten = await parseGoogleMapsUrl(url);
+    // Vervang bestaande waypoints
+    waypoints = gevondenPunten;
+    renderWaypointsList();
+    await updateRoutePreview();
+    statusEl.textContent = '✅ ' + gevondenPunten.length + ' punten geïmporteerd! Controleer de preview en sla op.';
+    document.getElementById('gmaps-url').value = '';
+  } catch(e) {
+    statusEl.textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↓ Importeer';
+  }
 }
 
 // Zoekresultaten opgeslagen als array zodat klik via index werkt (geen escaping problemen)
