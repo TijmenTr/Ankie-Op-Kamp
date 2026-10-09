@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Ankie op Kamp – Regie</title>
+<link rel="manifest" href="/manifest-regie.json">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.css">
+<link rel="stylesheet" href="/css/regie.css">
+<!-- MapLibre als gewone UMD script, geen ESM import -->
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<!-- Sync helpers als gewone script -->
+<script src="/js/sync.js"></script>
+</head>
+<body>
+
+<!-- ── PIN SCHERM ── -->
+<div id="pin-screen">
+  <div class="pin-inner">
+    <div class="pin-logo">🎬</div>
+    <h1>Regie</h1>
+    <p>Voer je pincode in</p>
+    <div id="pin-display" class="pin-display">
+      <span class="pin-dot" id="pd0"></span>
+      <span class="pin-dot" id="pd1"></span>
+      <span class="pin-dot" id="pd2"></span>
+      <span class="pin-dot" id="pd3"></span>
+    </div>
+    <div class="pin-grid">
+      <button class="pin-btn" data-digit="1">1</button>
+      <button class="pin-btn" data-digit="2">2</button>
+      <button class="pin-btn" data-digit="3">3</button>
+      <button class="pin-btn" data-digit="4">4</button>
+      <button class="pin-btn" data-digit="5">5</button>
+      <button class="pin-btn" data-digit="6">6</button>
+      <button class="pin-btn" data-digit="7">7</button>
+      <button class="pin-btn" data-digit="8">8</button>
+      <button class="pin-btn" data-digit="9">9</button>
+      <button class="pin-btn pin-clear" data-action="clear">✕</button>
+      <button class="pin-btn" data-digit="0">0</button>
+      <button class="pin-btn pin-ok" id="pin-ok-btn" data-action="ok">✓</button>
+    </div>
+    <p id="pin-error" class="pin-error hidden">Verkeerde pincode</p>
+    <p class="pin-hint">Standaard pincode: 1234</p>
+  </div>
+</div>
+
+<!-- ── REGIE APP ── -->
+<div id="regie-app" style="display:none">
+
+  <nav id="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-logo">🎬</span>
+      <span class="sidebar-title">Regie</span>
+    </div>
+    <button class="nav-tab active" data-tab="kaart"><span>🗺️</span><small>Kaart</small></button>
+    <button class="nav-tab" data-tab="routes"><span>📍</span><small>Routes</small></button>
+    <button class="nav-tab" data-tab="opdrachten"><span>📋</span><small>Opdrachten</small></button>
+    <button class="nav-tab" data-tab="audio"><span>🔊</span><small>Audio</small></button>
+    <button class="nav-tab" data-tab="berichten"><span>💬</span><small>Berichten</small></button>
+    <button class="nav-tab" data-tab="instellingen"><span>⚙️</span><small>Instellingen</small></button>
+    <div class="sidebar-status">
+      <span id="r-gps-dot" class="gps-dot gps-searching"></span>
+      <span id="r-gps-label">Wachten…</span>
+    </div>
+  </nav>
+
+  <main id="content-area">
+
+    <!-- ── TAB: KAART ── -->
+    <div id="tab-kaart" class="tab-panel active">
+      <div id="regie-map"></div>
+      <div class="map-controls-overlay">
+        <div class="map-ctrl-group">
+          <button id="btn-toon-locatie" class="map-ctrl-btn btn-blauw">📍 Toon locatie</button>
+          <button id="btn-verberg-locatie" class="map-ctrl-btn btn-grijs">🚫 Verberg locatie</button>
+          <button id="btn-centreer-spelers" class="map-ctrl-btn btn-groen">🎯 Centreer</button>
+        </div>
+        <div id="status-kaart" class="status-badge">Wachten op spelers…</div>
+      </div>
+      <div id="speler-info" class="speler-info-card hidden">
+        <strong>📡 Spelers positie</strong>
+        <div id="speler-coords"></div>
+        <div id="speler-snelheid"></div>
+        <div id="afwijking-info"></div>
+      </div>
+      <div class="quick-opdracht">
+        <select id="quick-opdracht-sel">
+          <option value="">— Stuur opdracht direct —</option>
+        </select>
+        <button id="btn-stuur-opdracht" class="map-ctrl-btn btn-oranje">📤 Stuur</button>
+      </div>
+    </div>
+
+    <!-- ── TAB: ROUTES ── -->
+    <div id="tab-routes" class="tab-panel hidden">
+      <div class="panel-header">
+        <h2>Routes &amp; Afleveringen</h2>
+        <button id="btn-nieuwe-route" class="btn-primary">+ Nieuwe route</button>
+      </div>
+      <div id="route-builder" class="card hidden">
+        <h3>Nieuwe route</h3>
+        <div class="form-row"><label>Naam</label><input type="text" id="route-naam" placeholder="bijv. Aflevering 1 – Noord"></div>
+        <div class="form-row"><label>Aflevering</label><input type="text" id="route-aflevering" placeholder="bijv. Afl. 1"></div>
+        <div class="waypoints-section">
+          <label>Tussenstops / Bestemmingen</label>
+          <div class="search-row">
+            <input type="text" id="waypoint-search" placeholder="Zoek adres of plaats…">
+            <button id="btn-waypoint-zoeken" class="btn-secondary">🔍 Zoek</button>
+          </div>
+          <div id="waypoint-zoekresultaten" class="zoek-results hidden"></div>
+          <div id="waypoints-list" class="waypoints-list"></div>
+          <p class="hint">Of klik op de kaart hieronder om een punt toe te voegen</p>
+        </div>
+        <div id="route-preview-map" style="height:280px;border-radius:12px;overflow:hidden;margin-bottom:1rem;"></div>
+        <div class="form-actions">
+          <button id="btn-route-opslaan" class="btn-primary">💾 Opslaan &amp; berekenen</button>
+          <button id="btn-route-annuleer" class="btn-ghost">Annuleer</button>
+        </div>
+      </div>
+      <div id="routes-list" class="items-list"></div>
+    </div>
+
+    <!-- ── TAB: OPDRACHTEN ── -->
+    <div id="tab-opdrachten" class="tab-panel hidden">
+      <div class="panel-header">
+        <h2>Opdrachten</h2>
+        <button id="btn-nieuwe-opdracht" class="btn-primary">+ Nieuwe opdracht</button>
+      </div>
+      <div id="opdracht-form-wrap" class="card hidden">
+        <h3>Opdracht aanmaken</h3>
+        <div class="form-row"><label>Titel</label><input type="text" id="op-titel" placeholder="Naam van de opdracht"></div>
+        <div class="form-row"><label>Tekst</label><textarea id="op-tekst" rows="4" placeholder="Beschrijf de opdracht…"></textarea></div>
+        <div class="form-row"><label>Afbeelding URL (optioneel)</label><input type="url" id="op-afbeelding" placeholder="https://…"></div>
+        <div class="form-row"><label>Audio (optioneel)</label><select id="op-audio"><option value="">— Geen audio —</option></select></div>
+        <div class="form-row">
+          <label>Type trigger</label>
+          <div class="btn-group-toggle" id="trigger-type-toggle">
+            <button class="toggle-btn active" data-type="locatie">📍 Locatie</button>
+            <button class="toggle-btn" data-type="tijd">⏰ Tijd</button>
+            <button class="toggle-btn" data-type="handmatig">✋ Handmatig</button>
+          </div>
+          <input type="hidden" id="op-type" value="locatie">
+        </div>
+        <div id="trigger-locatie" class="trigger-section">
+          <div class="form-row">
+            <label>Coördinaten (klik op kaart of vul in)</label>
+            <div class="coords-row">
+              <input type="number" id="op-lat" placeholder="Breedtegraad" step="any">
+              <input type="number" id="op-lon" placeholder="Lengtegraad" step="any">
+              <input type="number" id="op-straal" placeholder="Straal (m)" value="200">
+            </div>
+          </div>
+          <div id="opdracht-locatie-map" style="height:200px;border-radius:12px;overflow:hidden;margin-bottom:0.5rem;"></div>
+        </div>
+        <div id="trigger-tijd" class="trigger-section hidden">
+          <div class="form-row"><label>Op tijdstip</label><input type="time" id="op-trigger-tijd"></div>
+          <div class="form-row"><label>Of na X minuten na ritstart</label><input type="number" id="op-trigger-min" placeholder="bijv. 30" min="0"></div>
+        </div>
+
+        <!-- ── Nieuwe velden ── -->
+        <div class="opdracht-extra-velden">
+          <h4 class="extra-velden-titel">⏱️ Timer &amp; Stopwatch</h4>
+          <div class="form-row">
+            <label>Voltooiingsopties</label>
+            <div class="btn-group-toggle" id="voltooiing-modus-toggle">
+              <button class="toggle-btn active" data-modus="beide">✓✗ Voltooid &amp; Gefaald</button>
+              <button class="toggle-btn" data-modus="gedaan">✓ Alleen Gedaan</button>
+            </div>
+            <input type="hidden" id="op-voltooiing-modus" value="beide">
+          </div>
+          <div class="form-row">
+            <label>Tijdslimiet (seconden, 0 = geen timer)</label>
+            <input type="number" id="op-timer" placeholder="bijv. 120" min="0" value="0">
+          </div>
+          <div class="form-row" id="op-timer-start-wrap">
+            <label>Timer start</label>
+            <div class="btn-group-toggle" id="timer-start-toggle">
+              <button class="toggle-btn active" data-start="auto">⚡ Automatisch</button>
+              <button class="toggle-btn" data-start="handmatig">✋ Handmatig (speler tikt Start)</button>
+            </div>
+            <input type="hidden" id="op-timer-start" value="auto">
+          </div>
+          <div class="form-row">
+            <label>Stopwatch (los van timer, spelers tappen start/stop)</label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="op-stopwatch" class="toggle-check">
+              <span>Stopwatch toevoegen aan opdracht</span>
+            </label>
+          </div>
+
+          <h4 class="extra-velden-titel">📍 Automatisch stoppen bij locatie</h4>
+          <div class="form-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="op-stop-bij-locatie" class="toggle-check">
+              <span>Opdracht slaagt automatisch als spelers hier aankomen</span>
+            </label>
+          </div>
+          <div id="stop-locatie-velden" class="hidden">
+            <div class="form-row">
+              <label>Stoplocatie coördinaten (klik op kaart of vul in)</label>
+              <div class="coords-row">
+                <input type="number" id="op-stop-lat" placeholder="Breedtegraad" step="any">
+                <input type="number" id="op-stop-lon" placeholder="Lengtegraad" step="any">
+                <input type="number" id="op-stop-straal" placeholder="Straal (m)" value="100">
+              </div>
+            </div>
+            <p class="hint">💡 Klik op de opdrachtenkaart hierboven om snel coördinaten in te vullen voor de <strong>stoplocatie</strong>.</p>
+            <div class="form-row">
+              <label>Of gebruik hetzelfde punt als de trigger-locatie</label>
+              <button type="button" id="btn-kopieer-locatie" class="btn-secondary">↑ Kopieer van locatie-trigger</button>
+            </div>
+          </div>
+
+          <h4 class="extra-velden-titel">🎁 Beloning &amp; Straf</h4>
+          <div class="form-row">
+            <label>Beloningtekst (bij succes)</label>
+            <input type="text" id="op-beloning" placeholder="bijv. +5 punten en een hint!">
+          </div>
+          <div class="form-row">
+            <label>Audio bij succes</label>
+            <select id="op-audio-succes"><option value="">— Geen audio —</option></select>
+          </div>
+          <div class="form-row">
+            <label>Straftekst (bij mislukken/timer op)</label>
+            <input type="text" id="op-straf" placeholder="bijv. -3 punten en terug naar start!">
+          </div>
+          <div class="form-row">
+            <label>Audio bij falen</label>
+            <select id="op-audio-falen"><option value="">— Geen audio —</option></select>
+          </div>
+
+          <h4 class="extra-velden-titel">🗺️ Route na opdracht</h4>
+          <div class="form-row">
+            <label>Activeer route na succes</label>
+            <select id="op-route-succes"><option value="">— Geen route activeren —</option></select>
+          </div>
+          <div class="form-row">
+            <label>Activeer route na mislukken / timer op</label>
+            <select id="op-route-falen"><option value="">— Geen route activeren —</option></select>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button id="btn-opdracht-opslaan" class="btn-primary">💾 Opslaan</button>
+          <button id="btn-opdracht-annuleer" class="btn-ghost">Annuleer</button>
+        </div>
+      </div>
+      <div id="opdrachten-list" class="items-list"></div>
+    </div>
+
+    <!-- ── TAB: BERICHTEN ── -->
+    <div id="tab-berichten" class="tab-panel hidden">
+      <div class="panel-header"><h2>Berichten naar spelers</h2></div>
+      <div class="card">
+        <h3>💬 Bericht sturen</h3>
+        <div class="form-row">
+          <label>Berichttekst</label>
+          <textarea id="bericht-tekst" rows="4" placeholder="Typ hier het bericht dat de spelers te zien krijgen…"></textarea>
+        </div>
+        <div class="form-row">
+          <label>Emoji / icoon (optioneel)</label>
+          <input type="text" id="bericht-emoji" placeholder="bijv. 🎉 of ⚠️" maxlength="4">
+        </div>
+        <div class="form-row">
+          <label>Audio meesturen (optioneel)</label>
+          <select id="bericht-audio"><option value="">— Geen audio —</option></select>
+        </div>
+        <div class="form-actions">
+          <button id="btn-stuur-bericht" class="btn-primary">📤 Stuur bericht</button>
+          <button id="btn-stuur-bericht-regie" class="btn-secondary">📣 Stuur + speel audio</button>
+        </div>
+        <p class="hint">Het bericht verschijnt als overlay op het spelersscherm totdat ze het wegklikken.</p>
+      </div>
+      <div class="card">
+        <h3>📋 Vooraf ingestelde berichten</h3>
+        <div class="snelberichten-grid" id="snelberichten-grid">
+          <button class="snelbericht-btn" data-tekst="Goed bezig! Ga zo door 💪" data-emoji="💪">💪 Goed bezig!</button>
+          <button class="snelbericht-btn" data-tekst="Let op: jullie gaan de verkeerde kant op! ⚠️" data-emoji="⚠️">⚠️ Verkeerde kant!</button>
+          <button class="snelbericht-btn" data-tekst="Stoppen! Wacht op verdere instructies. 🛑" data-emoji="🛑">🛑 Stop!</button>
+          <button class="snelbericht-btn" data-tekst="Bijna bij de finish! Nog even doorzetten 🏁" data-emoji="🏁">🏁 Bijna er!</button>
+          <button class="snelbericht-btn" data-tekst="Gefeliciteerd! Jullie hebben de opdracht gehaald! 🎉" data-emoji="🎉">🎉 Gefeliciteerd!</button>
+          <button class="snelbericht-btn" data-tekst="Helaas, tijd is om. Kom terug naar het startpunt. ❌" data-emoji="❌">❌ Tijd is op</button>
+        </div>
+        <p class="hint">Klik een snelbericht om het te selecteren, dan op Stuur bericht.</p>
+      </div>
+      <div class="card">
+        <h3>📜 Berichtgeschiedenis</h3>
+        <div id="bericht-geschiedenis" class="items-list"><p class="empty-msg">Nog geen berichten verstuurd.</p></div>
+      </div>
+    </div>
+
+    <!-- ── TAB: AUDIO ── -->
+    <div id="tab-audio" class="tab-panel hidden">
+      <div class="panel-header"><h2>Audiobeheer</h2></div>
+      <div class="card">
+        <h3>Audiobestand toevoegen</h3>
+        <div class="form-row"><label>Naam</label><input type="text" id="audio-naam" placeholder="Naam voor dit bestand"></div>
+        <div class="form-row"><label>URL (mp3, m4a, wav)</label><input type="url" id="audio-url" placeholder="https://…"></div>
+        <div class="form-row"><label>Type</label>
+          <select id="audio-type">
+            <option value="muziek">🎵 Muziek</option>
+            <option value="sfx">🔔 Geluidseffect</option>
+            <option value="spraak">🎙️ Spraak</option>
+          </select>
+        </div>
+        <div class="form-actions"><button id="btn-audio-toevoegen" class="btn-primary">+ Toevoegen</button></div>
+        <p class="hint">💡 Gebruik directe download-links (Dropbox ?dl=1, GitHub raw, etc.).</p>
+      </div>
+      <div id="audio-list" class="items-list"></div>
+    </div>
+
+    <!-- ── TAB: INSTELLINGEN ── -->
+    <div id="tab-instellingen" class="tab-panel hidden">
+      <div class="panel-header"><h2>Instellingen</h2></div>
+      <div class="card settings-grid">
+        <div class="setting-group">
+          <h3>📍 Afwijking &amp; Terughaal</h3>
+          <div class="form-row"><label>Afwijkingsdrempel (meter)</label><input type="number" id="s-drempel" min="50" max="5000" step="50"></div>
+          <div class="form-row"><label>Wachttijd voor ingrijpen (seconden)</label><input type="number" id="s-wachttijd" min="5" max="300" step="5"></div>
+          <div class="form-row"><label>Teruhaalfunctie actief</label><input type="checkbox" id="s-terughaal" class="toggle-check"></div>
+        </div>
+        <div class="setting-group">
+          <h3>👁️ Zichtbaarheid</h3>
+          <div class="form-row"><label>Hoe lang locatie zichtbaar (sec, 0 = altijd)</label><input type="number" id="s-locatie-duur" min="0" max="600" step="10"></div>
+          <div class="form-row"><label>Toon route aan spelers</label><input type="checkbox" id="s-toon-route" class="toggle-check"></div>
+          <div class="form-row"><label>Toon bestemming aan spelers</label><input type="checkbox" id="s-toon-bestemming" class="toggle-check"></div>
+          <div class="form-row">
+            <label>Route zichtbaar voor spelers</label>
+            <select id="s-route-zichtbaar">
+              <option value="direct">Direct vanaf start</option>
+              <option value="handmatig">Alleen als ik het aanzet (handmatig)</option>
+              <option value="afwijking">Alleen bij routeafwijking</option>
+            </select>
+          </div>
+          <div class="form-row" id="route-zichtbaar-knoppen" style="gap:0.5rem;flex-wrap:wrap;">
+            <button id="btn-toon-route-nu" class="btn-sm btn-blauw">🗺️ Toon route nu</button>
+            <button id="btn-verberg-route-nu" class="btn-sm btn-grijs">🚫 Verberg route</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <h3>🗺️ Kaart</h3>
+          <div class="form-row"><label>Kaartstijl</label>
+            <select id="s-kaartstijl">
+              <option value="/kaart-stijl.json">🏞️ Expeditiekaart (Ankie op Kamp)</option>
+              <option value="https://tiles.openfreemap.org/styles/liberty">OpenFreeMap Liberty</option>
+              <option value="https://tiles.openfreemap.org/styles/bright">OpenFreeMap Bright</option>
+              <option value="https://tiles.openfreemap.org/styles/positron">OpenFreeMap Positron (licht)</option>
+              <option value="https://tiles.openfreemap.org/styles/dark-matter">OpenFreeMap Dark</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-group">
+          <h3>🔐 Pincode wijzigen</h3>
+          <div class="form-row"><label>Nieuwe pincode (4 cijfers)</label><input type="number" id="s-nieuwe-pin" placeholder="Nieuwe pincode" min="0" max="9999"></div>
+          <div class="form-row"><label>Herhaal pincode</label><input type="number" id="s-nieuwe-pin2" placeholder="Herhaal" min="0" max="9999"></div>
+        </div>
+        <div class="form-actions" style="grid-column:1/-1">
+          <button id="btn-instellingen-opslaan" class="btn-primary btn-groot">💾 Instellingen opslaan</button>
+        </div>
+        <p id="settings-feedback" class="hidden feedback-msg"></p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="r-toast" class="r-toast"></div>
+
+
+
+<script>
+/* =====================================================
+   REGIE APP — volledig inline, geen ESM imports
+   ===================================================== */
+'use strict';
+
+// ─── PIN ─────────────────────────────────────────────
+var enteredPin = '';
+var DEFAULT_PIN = '1234';
+
+document.querySelectorAll('.pin-btn[data-digit]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    if (enteredPin.length >= 4) return;
+    enteredPin += btn.dataset.digit;
+    updatePinDisplay();
+    if (enteredPin.length === 4) checkPin();
+  });
+});
+
+document.querySelector('[data-action="clear"]').addEventListener('click', function() {
+  enteredPin = enteredPin.slice(0, -1);
+  updatePinDisplay();
+});
+
+document.getElementById('pin-ok-btn').addEventListener('click', function() {
+  if (enteredPin.length > 0) checkPin();
+});
+
+// Enter-toets ondersteuning
+document.addEventListener('keydown', function(e) {
+  if (document.getElementById('pin-screen').style.display === 'none') return;
+  if (e.key >= '0' && e.key <= '9' && enteredPin.length < 4) {
+    enteredPin += e.key;
+    updatePinDisplay();
+    if (enteredPin.length === 4) checkPin();
+  } else if (e.key === 'Backspace') {
+    enteredPin = enteredPin.slice(0, -1);
+    updatePinDisplay();
+  } else if (e.key === 'Enter') {
+    if (enteredPin.length > 0) checkPin();
+  }
+});
+
+function updatePinDisplay() {
+  for (var i = 0; i < 4; i++) {
+    var dot = document.getElementById('pd' + i);
+    if (dot) dot.classList.toggle('filled', i < enteredPin.length);
+  }
+}
+
+async function checkPin() {
+  // Haal pincode op uit database; val terug op DEFAULT_PIN als database leeg/fout
+  var storedPin = DEFAULT_PIN;
+  try {
+    await SettingsStore.load();
+    var dbPin = SettingsStore.get('pincode', null);
+    if (dbPin !== null && dbPin !== undefined && String(dbPin).trim() !== '') {
+      storedPin = String(dbPin).trim();
+    }
+  } catch(e) {
+    console.warn('Pincode ophalen mislukt, gebruik standaard:', e);
+    storedPin = DEFAULT_PIN;
+  }
+
+  // Vergelijk (pad met leading zeros voor 4 cijfers)
+  var entered = String(enteredPin).padStart(4, '0');
+  var stored  = String(storedPin).padStart(4, '0');
+
+  if (entered === stored || enteredPin === storedPin) {
+    document.getElementById('pin-screen').style.display = 'none';
+    document.getElementById('regie-app').style.display = 'flex';
+    initRegie();
+  } else {
+    document.getElementById('pin-error').classList.remove('hidden');
+    enteredPin = '';
+    updatePinDisplay();
+    setTimeout(function() {
+      document.getElementById('pin-error').classList.add('hidden');
+    }, 2000);
+  }
+}
+
+// ─── REGIE GLOBALS ───────────────────────────────────
+var regieMap = null, routePreviewMap = null, opdrachtLocMap = null;
+var waypoints = [];
+var allOpdrachten = [];
+var allRoutes = [];
+var audioFiles = [];
+var lastPlayerPos = null;
+var activeRouteCoords = [];
+
+// ─── INIT ────────────────────────────────────────────
+async function initRegie() {
+  initTabs();
+  initRegieMap();
+  try { await SettingsStore.load(); } catch(e) {}
+  loadSettingsUI();
+  loadRoutes();
+  loadOpdrachten();
+  loadAudioFiles();
+  bindRouteUI();
+  bindOpdrachtUI();
+  bindAudioUI();
+  bindInstellingenUI();
+  bindKaartControls();
+  bindBerichtenUI();
+  SignalBus.startPolling(2500);
+  bindSignalHandlers();
+  startPositiePolling();
+}
+
+// ─── TABS ─────────────────────────────────────────────
+function initTabs() {
+  document.querySelectorAll('.nav-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+      document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.add('hidden'); });
+      tab.classList.add('active');
+      var panel = document.getElementById('tab-' + tab.dataset.tab);
+      if (panel) panel.classList.remove('hidden');
+      if (tab.dataset.tab === 'routes' && !routePreviewMap) initRoutePreviewMap();
+      if (tab.dataset.tab === 'opdrachten' && !opdrachtLocMap) initOpdrachtLocMap();
+      if (tab.dataset.tab === 'kaart' && regieMap) setTimeout(function(){ regieMap.resize(); }, 50);
+    });
+  });
+}
+
+// ─── REGIE KAART ──────────────────────────────────────
+function initRegieMap() {
+  var style = SettingsStore.get('kaartstijl', '/kaart-stijl.json');
+  try {
+    regieMap = new maplibregl.Map({
+      container: 'regie-map',
+      style: style,
+      center: [5.2913, 52.1326],
+      zoom: 8,
+      attributionControl: false,
+    });
+    regieMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+    regieMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    regieMap.on('load', function() {
+      addRegieLayers();
+    });
+  } catch(e) { console.error('Regie kaart init fout:', e); }
+}
+
+function addRegieLayers() {
+  try {
+    regieMap.addSource('regie-route', { type: 'geojson', data: emptyLine() });
+    regieMap.addLayer({ id: 'regie-route-line', type: 'line', source: 'regie-route', paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-dasharray': [3, 2] } });
+    regieMap.addSource('regie-return', { type: 'geojson', data: emptyLine() });
+    regieMap.addLayer({ id: 'regie-return-line', type: 'line', source: 'regie-return', paint: { 'line-color': '#f97316', 'line-width': 5 } });
+    regieMap.addSource('regie-player', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0,0] } } });
+    regieMap.addLayer({ id: 'regie-player-dot', type: 'circle', source: 'regie-player', paint: { 'circle-radius': 10, 'circle-color': '#ef4444', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' } });
+    regieMap.addLayer({ id: 'regie-player-dot-hidden', type: 'circle', source: 'regie-player', paint: { 'circle-radius': 0, 'circle-color': 'transparent' } });
+  } catch(e) { console.warn('Regie layer fout:', e); }
+}
+
+function emptyLine() { return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }; }
+
+// ─── KAART CONTROLS ───────────────────────────────────
+function bindKaartControls() {
+  document.getElementById('btn-toon-locatie').addEventListener('click', function() {
+    SignalBus.send('toon_locatie', {});
+    toast('📍 Locatie tonen gestuurd');
+  });
+  document.getElementById('btn-verberg-locatie').addEventListener('click', function() {
+    SignalBus.send('verberg_locatie', {});
+    toast('🚫 Locatie verbergen gestuurd');
+  });
+  document.getElementById('btn-centreer-spelers').addEventListener('click', function() {
+    if (lastPlayerPos && regieMap) {
+      regieMap.flyTo({ center: [lastPlayerPos.lon, lastPlayerPos.lat], zoom: 14 });
+    } else { toast('Nog geen spelerspositie', 'warn'); }
+  });
+  document.getElementById('btn-stuur-opdracht').addEventListener('click', function() {
+    var sel = document.getElementById('quick-opdracht-sel');
+    var id = sel.value;
+    if (!id) { toast('Kies eerst een opdracht', 'warn'); return; }
+    var op = allOpdrachten.find(function(o) { return o.id === id; });
+    if (op) { SignalBus.send('toon_opdracht', op); toast('📤 Opdracht gestuurd: ' + op.titel); }
+  });
+}
+
+// ─── POSITIE POLLING ──────────────────────────────────
+function startPositiePolling() {
+  setInterval(async function() {
+    var p = await PositieStore.fetch();
+    if (!p) return;
+    if (Date.now() - Number(p.ts) > 30000) {
+      document.getElementById('r-gps-dot').className = 'gps-dot gps-searching';
+      document.getElementById('r-gps-label').textContent = 'GPS oud';
+      return;
+    }
+    lastPlayerPos = { lat: p.lat, lon: p.lon };
+    document.getElementById('r-gps-dot').className = p.accuracy < 30 ? 'gps-dot gps-good' : 'gps-dot gps-ok';
+    document.getElementById('r-gps-label').textContent = '±' + Math.round(p.accuracy) + 'm';
+    if (regieMap && regieMap.getSource('regie-player')) {
+      regieMap.getSource('regie-player').setData({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] } });
+    }
+    var info = document.getElementById('speler-info');
+    info.classList.remove('hidden');
+    document.getElementById('speler-coords').textContent = p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
+    var spd = p.speed ? Math.round(p.speed * 3.6) + ' km/h' : '—';
+    document.getElementById('speler-snelheid').textContent = 'Snelheid: ' + spd;
+    document.getElementById('status-kaart').textContent = 'GPS actief';
+    if (activeRouteCoords.length > 1) {
+      var dist = distanceToRoute(p.lat, p.lon, activeRouteCoords);
+      document.getElementById('afwijking-info').textContent = 'Afwijking route: ' + Math.round(dist) + ' m';
+    }
+  }, 3000);
+}
+
+// ─── SIGNALEN ─────────────────────────────────────────
+function bindSignalHandlers() {
+  SignalBus.on('van_route_af', function() { toast('⚠️ Spelers zijn van de route af!', 'warn'); });
+  SignalBus.on('terug_op_route', function() { toast('✅ Spelers terug op de route'); });
+  SignalBus.on('opdracht_voltooid', function(p) { toast('✅ Opdracht voltooid door spelers!'); loadOpdrachten(); });
+  SignalBus.on('opdracht_gefaald', function(p) {
+    var titel = (p && p.titel) ? p.titel : 'onbekende opdracht';
+    toast('⏰ Timer op! "' + titel + '" mislukt', 'warn');
+    loadOpdrachten();
+  });
+}
+
+// ─── ROUTES ───────────────────────────────────────────
+async function loadRoutes() {
+  try {
+    var r = await API.get('aok_routes', '?limit=50');
+    allRoutes = (r.data || []).filter(function(x) { return !x.deleted; });
+  } catch(e) { allRoutes = []; }
+  renderRoutesList();
+  var actief = allRoutes.find(function(r) { return r.actief; });
+  if (actief && actief.geojson) {
+    try {
+      var geo = JSON.parse(actief.geojson);
+      activeRouteCoords = geo.coordinates || [];
+      if (regieMap && regieMap.getSource('regie-route')) {
+        regieMap.getSource('regie-route').setData({ type: 'Feature', geometry: geo });
+      }
+    } catch(e) {}
+  }
+  updateQuickOpdrachtSelect();
+}
+
+function renderRoutesList() {
+  var list = document.getElementById('routes-list');
+  if (!allRoutes.length) { list.innerHTML = '<p class="empty-msg">Nog geen routes.</p>'; return; }
+  list.innerHTML = allRoutes.map(function(route) {
+    return '<div class="item-card ' + (route.actief ? 'item-actief' : '') + '">' +
+      '<div class="item-info"><strong>' + escHtml(route.naam || 'Route') + '</strong>' +
+      '<small>' + escHtml(route.aflevering || '') + (route.actief ? ' ✅ Actief' : '') + '</small></div>' +
+      '<div class="item-actions">' +
+      (!route.actief ? '<button class="btn-sm btn-groen" onclick="activeerRoute(\'' + route.id + '\')">Activeer</button>' : '') +
+      '<button class="btn-sm btn-rood" onclick="verwijderRoute(\'' + route.id + '\')">🗑️</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+window.activeerRoute = async function(id) {
+  for (var i = 0; i < allRoutes.length; i++) {
+    if (allRoutes[i].actief) await API.patch('aok_routes', allRoutes[i].id, { actief: false }).catch(function(){});
+  }
+  await API.patch('aok_routes', id, { actief: true });
+  SignalBus.send('route_bijgewerkt', { route_id: id });
+  toast('✅ Route geactiveerd');
+  loadRoutes();
+};
+
+window.verwijderRoute = async function(id) {
+  if (!confirm('Route verwijderen?')) return;
+  await API.del('aok_routes', id);
+  toast('Route verwijderd');
+  loadRoutes();
+};
+
+function initRoutePreviewMap() {
+  var style = SettingsStore.get('kaartstijl', '/kaart-stijl.json');
+  try {
+    routePreviewMap = new maplibregl.Map({
+      container: 'route-preview-map', style: style,
+      center: [5.2913, 52.1326], zoom: 7,
+    });
+    routePreviewMap.on('load', function() {
+      routePreviewMap.addSource('prev-route', { type: 'geojson', data: emptyLine() });
+      routePreviewMap.addLayer({ id: 'prev-line', type: 'line', source: 'prev-route', paint: { 'line-color': '#3b82f6', 'line-width': 4 } });
+      routePreviewMap.addSource('prev-wp', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      routePreviewMap.addLayer({ id: 'prev-wp-dot', type: 'circle', source: 'prev-wp', paint: { 'circle-radius': 8, 'circle-color': '#ef4444', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+    });
+    routePreviewMap.on('click', function(e) {
+      var lat = e.lngLat.lat, lon = e.lngLat.lng;
+      addWaypoint({ lat: lat, lon: lon, label: lat.toFixed(4) + ', ' + lon.toFixed(4) });
+    });
+  } catch(e) { console.warn('Route preview map fout:', e); }
+}
+
+function bindRouteUI() {
+  document.getElementById('btn-nieuwe-route').addEventListener('click', function() {
+    waypoints = [];
+    document.getElementById('route-naam').value = '';
+    document.getElementById('route-aflevering').value = '';
+    renderWaypointsList();
+    document.getElementById('route-builder').classList.remove('hidden');
+    if (!routePreviewMap) initRoutePreviewMap();
+  });
+  document.getElementById('btn-route-annuleer').addEventListener('click', function() {
+    document.getElementById('route-builder').classList.add('hidden');
+  });
+  document.getElementById('btn-waypoint-zoeken').addEventListener('click', doWaypointSearch);
+  document.getElementById('waypoint-search').addEventListener('keydown', function(e) { if (e.key === 'Enter') doWaypointSearch(); });
+  document.getElementById('btn-route-opslaan').addEventListener('click', slaRouteOp);
+}
+
+// Zoekresultaten opgeslagen als array zodat klik via index werkt (geen escaping problemen)
+var _zoekResultaten = [];
+
+async function doWaypointSearch() {
+  var q = document.getElementById('waypoint-search').value.trim();
+  if (!q) return;
+  var wrap = document.getElementById('waypoint-zoekresultaten');
+  wrap.innerHTML = '<div class="zoek-item">Zoeken…</div>';
+  wrap.classList.remove('hidden');
+  try {
+    var results = await nominatimSearch(q);
+    _zoekResultaten = results.slice(0, 6);
+    if (!_zoekResultaten.length) { wrap.innerHTML = '<p class="empty-msg">Geen resultaten</p>'; return; }
+    wrap.innerHTML = _zoekResultaten.map(function(r, i) {
+      return '<div class="zoek-item" data-idx="' + i + '">' + escHtml(r.display_name) + '</div>';
+    }).join('');
+    // Klik via event delegation — geen inline onclick met aanhalingstekens
+    wrap.querySelectorAll('.zoek-item[data-idx]').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var idx = parseInt(el.dataset.idx);
+        var r = _zoekResultaten[idx];
+        if (!r) return;
+        addWaypoint({ lat: parseFloat(r.lat), lon: parseFloat(r.lon), label: r.display_name });
+        wrap.classList.add('hidden');
+        document.getElementById('waypoint-search').value = '';
+        _zoekResultaten = [];
+      });
+    });
+  } catch(e) { wrap.innerHTML = '<p class="empty-msg">Zoeken mislukt</p>'; }
+}
+
+function addWaypoint(wp) {
+  waypoints.push(wp);
+  renderWaypointsList();
+  updateRoutePreview();
+  if (routePreviewMap) routePreviewMap.flyTo({ center: [wp.lon, wp.lat], zoom: 11 });
+}
+
+function renderWaypointsList() {
+  var list = document.getElementById('waypoints-list');
+  if (!waypoints.length) { list.innerHTML = '<p class="hint">Nog geen punten</p>'; return; }
+  list.innerHTML = waypoints.map(function(wp, i) {
+    var icon = i === 0 ? '🟢' : (i === waypoints.length - 1 ? '🔴' : '🔵');
+    return '<div class="wp-item">' +
+      '<span class="wp-drag">⠿</span>' +
+      '<span class="wp-label">' + icon + ' ' + escHtml(wp.label) + '</span>' +
+      '<button class="btn-icon" onclick="removeWaypoint(' + i + ')">✕</button>' +
+      '</div>';
+  }).join('');
+}
+
+window.removeWaypoint = function(idx) {
+  waypoints.splice(idx, 1);
+  renderWaypointsList();
+  updateRoutePreview();
+};
+
+async function updateRoutePreview() {
+  if (waypoints.length < 2 || !routePreviewMap) return;
+  try {
+    var route = await osrmRoute(waypoints);
+    if (routePreviewMap.getSource('prev-route')) {
+      routePreviewMap.getSource('prev-route').setData({ type: 'Feature', geometry: route.geometry });
+      routePreviewMap.getSource('prev-wp').setData({
+        type: 'FeatureCollection',
+        features: waypoints.map(function(wp) { return { type: 'Feature', geometry: { type: 'Point', coordinates: [wp.lon, wp.lat] } }; }),
+      });
+      var coords = route.geometry.coordinates;
+      if (coords.length) {
+        var bounds = coords.reduce(function(b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(coords[0], coords[0]));
+        routePreviewMap.fitBounds(bounds, { padding: 30 });
+      }
+    }
+  } catch(e) { console.warn('Preview route fout:', e); }
+}
+
+async function slaRouteOp() {
+  var naam = document.getElementById('route-naam').value.trim();
+  if (!naam) { toast('Geef de route een naam', 'warn'); return; }
+  if (waypoints.length < 2) { toast('Voeg minimaal 2 punten toe', 'warn'); return; }
+  var geojson = '';
+  try {
+    var route = await osrmRoute(waypoints);
+    geojson = JSON.stringify(route.geometry);
+  } catch(e) { toast('Route berekenen mislukt, opgeslagen zonder lijn', 'warn'); }
+  var body = {
+    naam: naam,
+    aflevering: document.getElementById('route-aflevering').value,
+    waypoints: JSON.stringify(waypoints),
+    geojson: geojson,
+    actief: false,
+  };
+  try {
+    await API.post('aok_routes', body);
+    toast('✅ Route opgeslagen');
+    SignalBus.send('route_bijgewerkt', {});
+    document.getElementById('route-builder').classList.add('hidden');
+    loadRoutes();
+  } catch(e) { toast('Opslaan mislukt', 'warn'); }
+}
+
+// ─── OPDRACHTEN ───────────────────────────────────────
+async function loadOpdrachten() {
+  try {
+    var r = await API.get('aok_opdrachten', '?limit=100');
+    allOpdrachten = (r.data || []).filter(function(o) { return !o.deleted; });
+  } catch(e) { allOpdrachten = []; }
+  renderOpdrachtenList();
+  updateQuickOpdrachtSelect();
+  updateOpdrachtAudioSelect();
+}
+
+function renderOpdrachtenList() {
+  var list = document.getElementById('opdrachten-list');
+  if (!allOpdrachten.length) { list.innerHTML = '<p class="empty-msg">Nog geen opdrachten.</p>'; return; }
+  list.innerHTML = allOpdrachten.map(function(o) {
+    var icon = o.type === 'locatie' ? '📍' : o.type === 'tijd' ? '⏰' : '✋';
+    var badge = o.status === 'voltooid' ? '<span class="badge-green">✓ Voltooid</span>' :
+                o.status === 'actief' ? '<span class="badge-blue">▶ Actief</span>' : '<span class="badge-grey">In wacht</span>';
+    var tekst = o.tekst ? o.tekst.substring(0, 80) + (o.tekst.length > 80 ? '…' : '') : '';
+    return '<div class="item-card">' +
+      '<div class="item-info"><strong>' + icon + ' ' + escHtml(o.titel || '—') + '</strong>' +
+      '<small>' + escHtml(tekst) + '</small>' + badge + '</div>' +
+      '<div class="item-actions">' +
+      '<button class="btn-sm btn-oranje" onclick="stuurOpdrachtDirect(\'' + o.id + '\')">📤 Stuur nu</button>' +
+      '<button class="btn-sm btn-rood" onclick="verwijderOpdracht(\'' + o.id + '\')">🗑️</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+function updateQuickOpdrachtSelect() {
+  var sel = document.getElementById('quick-opdracht-sel');
+  sel.innerHTML = '<option value="">— Stuur opdracht direct —</option>' +
+    allOpdrachten.filter(function(o) { return o.status !== 'voltooid'; }).map(function(o) {
+      return '<option value="' + o.id + '">' + escHtml(o.titel || '—') + '</option>';
+    }).join('');
+}
+
+window.stuurOpdrachtDirect = function(id) {
+  var op = allOpdrachten.find(function(o) { return o.id === id; });
+  if (!op) return;
+  SignalBus.send('toon_opdracht', op);
+  toast('📤 Opdracht gestuurd: ' + op.titel);
+};
+
+window.verwijderOpdracht = async function(id) {
+  if (!confirm('Opdracht verwijderen?')) return;
+  await API.del('aok_opdrachten', id);
+  toast('Opdracht verwijderd');
+  loadOpdrachten();
+};
+
+function initOpdrachtLocMap() {
+  var style = SettingsStore.get('kaartstijl', '/kaart-stijl.json');
+  try {
+    opdrachtLocMap = new maplibregl.Map({
+      container: 'opdracht-locatie-map', style: style,
+      center: [5.2913, 52.1326], zoom: 10,
+    });
+    opdrachtLocMap.on('load', function() {
+      opdrachtLocMap.addSource('op-marker', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0,0] } } });
+      opdrachtLocMap.addLayer({ id: 'op-dot', type: 'circle', source: 'op-marker', paint: { 'circle-radius': 10, 'circle-color': '#fbbf24', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+    });
+    opdrachtLocMap.on('click', function(e) {
+      document.getElementById('op-lat').value = e.lngLat.lat.toFixed(6);
+      document.getElementById('op-lon').value = e.lngLat.lng.toFixed(6);
+      if (opdrachtLocMap.getSource('op-marker')) {
+        opdrachtLocMap.getSource('op-marker').setData({ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lngLat.lng, e.lngLat.lat] } });
+      }
+    });
+  } catch(e) { console.warn('Opdracht loc map fout:', e); }
+}
+
+function bindOpdrachtUI() {
+  document.getElementById('btn-nieuwe-opdracht').addEventListener('click', function() {
+    document.getElementById('op-titel').value = '';
+    document.getElementById('op-tekst').value = '';
+    document.getElementById('op-afbeelding').value = '';
+    document.getElementById('op-audio').value = '';
+    document.getElementById('op-lat').value = '';
+    document.getElementById('op-lon').value = '';
+    document.getElementById('op-straal').value = '200';
+    document.getElementById('op-trigger-tijd').value = '';
+    document.getElementById('op-trigger-min').value = '';
+    document.getElementById('op-timer').value = '0';
+    document.getElementById('op-timer-start').value = 'auto';
+    document.getElementById('timer-start-toggle').querySelectorAll('.toggle-btn').forEach(function(b,i) { b.classList.toggle('active', i===0); });
+    document.getElementById('op-stopwatch').checked = false;
+    document.getElementById('op-voltooiing-modus').value = 'beide';
+    document.getElementById('voltooiing-modus-toggle').querySelectorAll('.toggle-btn').forEach(function(b,i) { b.classList.toggle('active', i===0); });
+    document.getElementById('op-stop-bij-locatie').checked = false;
+    document.getElementById('stop-locatie-velden').classList.add('hidden');
+    document.getElementById('op-stop-lat').value = '';
+    document.getElementById('op-stop-lon').value = '';
+    document.getElementById('op-stop-straal').value = '100';
+    document.getElementById('op-beloning').value = '';
+    document.getElementById('op-audio-succes').value = '';
+    document.getElementById('op-straf').value = '';
+    document.getElementById('op-audio-falen').value = '';
+    document.getElementById('op-route-succes').value = '';
+    document.getElementById('op-route-falen').value = '';
+    document.getElementById('op-timer-start-wrap').style.opacity = '0.4';
+    setOpType('locatie');
+    updateRouteSelectsInForm();
+    document.getElementById('opdracht-form-wrap').classList.remove('hidden');
+    if (!opdrachtLocMap) initOpdrachtLocMap();
+  });
+
+  // Stop-bij-locatie toggle
+  document.getElementById('op-stop-bij-locatie').addEventListener('change', function() {
+    document.getElementById('stop-locatie-velden').classList.toggle('hidden', !this.checked);
+  });
+
+  // Stop-locatie kaart klik: tweede klik op opdracht-locatie-map vult stop-coördinaten als checkbox aan is
+  // Kopieer trigger-locatie naar stop-locatie
+  document.getElementById('btn-kopieer-locatie').addEventListener('click', function() {
+    var lat = document.getElementById('op-lat').value;
+    var lon = document.getElementById('op-lon').value;
+    var straal = document.getElementById('op-straal').value;
+    if (!lat || !lon) { toast('Vul eerst de trigger-locatie in', 'warn'); return; }
+    document.getElementById('op-stop-lat').value = lat;
+    document.getElementById('op-stop-lon').value = lon;
+    document.getElementById('op-stop-straal').value = straal || '100';
+    toast('Locatie gekopieerd naar stoplocatie');
+  });
+  document.getElementById('btn-opdracht-annuleer').addEventListener('click', function() {
+    document.getElementById('opdracht-form-wrap').classList.add('hidden');
+  });
+  document.getElementById('btn-opdracht-opslaan').addEventListener('click', slaOpdrachtOp);
+  // Type trigger toggle
+  document.getElementById('trigger-type-toggle').querySelectorAll('.toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('trigger-type-toggle').querySelectorAll('.toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      setOpType(btn.dataset.type);
+    });
+  });
+  // Voltooiing modus toggle
+  document.getElementById('voltooiing-modus-toggle').querySelectorAll('.toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('voltooiing-modus-toggle').querySelectorAll('.toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('op-voltooiing-modus').value = btn.dataset.modus;
+    });
+  });
+  // Timer start toggle
+  document.getElementById('timer-start-toggle').querySelectorAll('.toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('timer-start-toggle').querySelectorAll('.toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('op-timer-start').value = btn.dataset.start;
+    });
+  });
+  // Toon/verberg timer-start optie op basis van timer waarde
+  document.getElementById('op-timer').addEventListener('input', function() {
+    var heeft = parseInt(this.value) > 0;
+    document.getElementById('op-timer-start-wrap').style.opacity = heeft ? '1' : '0.4';
+  });
+}
+
+function setOpType(type) {
+  document.getElementById('op-type').value = type;
+  document.getElementById('trigger-locatie').classList.toggle('hidden', type !== 'locatie');
+  document.getElementById('trigger-tijd').classList.toggle('hidden', type !== 'tijd');
+}
+
+async function slaOpdrachtOp() {
+  var titel = document.getElementById('op-titel').value.trim();
+  if (!titel) { toast('Geef de opdracht een titel', 'warn'); return; }
+  var type = document.getElementById('op-type').value;
+  var stopBijLocatie = document.getElementById('op-stop-bij-locatie').checked;
+  var timerSec = parseInt(document.getElementById('op-timer').value) || 0;
+  var body = {
+    type: type,
+    titel: titel,
+    tekst: document.getElementById('op-tekst').value.trim(),
+    afbeelding_url: document.getElementById('op-afbeelding').value.trim(),
+    audio_id: document.getElementById('op-audio').value,
+    lat: type === 'locatie' ? parseFloat(document.getElementById('op-lat').value) || null : null,
+    lon: type === 'locatie' ? parseFloat(document.getElementById('op-lon').value) || null : null,
+    straal: type === 'locatie' ? parseInt(document.getElementById('op-straal').value) || 200 : null,
+    trigger_tijd: type === 'tijd' ? document.getElementById('op-trigger-tijd').value : null,
+    trigger_minuten: type === 'tijd' ? parseInt(document.getElementById('op-trigger-min').value) || 0 : 0,
+    timer_seconden: timerSec,
+    timer_start: timerSec > 0 ? document.getElementById('op-timer-start').value : null,
+    stopwatch: document.getElementById('op-stopwatch').checked,
+    voltooiing_modus: document.getElementById('op-voltooiing-modus').value,
+    stop_bij_locatie: stopBijLocatie,
+    stop_lat: stopBijLocatie ? parseFloat(document.getElementById('op-stop-lat').value) || null : null,
+    stop_lon: stopBijLocatie ? parseFloat(document.getElementById('op-stop-lon').value) || null : null,
+    stop_straal: stopBijLocatie ? parseInt(document.getElementById('op-stop-straal').value) || 100 : null,
+    beloning: document.getElementById('op-beloning').value.trim(),
+    audio_succes: document.getElementById('op-audio-succes').value || null,
+    straf: document.getElementById('op-straf').value.trim(),
+    audio_falen: document.getElementById('op-audio-falen').value || null,
+    route_bij_succes: document.getElementById('op-route-succes').value || null,
+    route_bij_falen: document.getElementById('op-route-falen').value || null,
+    status: 'wacht',
+    volgorde: allOpdrachten.length,
+  };
+  try {
+    await API.post('aok_opdrachten', body);
+    toast('✅ Opdracht opgeslagen');
+    document.getElementById('opdracht-form-wrap').classList.add('hidden');
+    loadOpdrachten();
+  } catch(e) { toast('Opslaan mislukt: ' + e.message, 'warn'); }
+}
+
+function updateRouteSelectsInForm() {
+  var opties = '<option value="">— Geen route activeren —</option>' +
+    allRoutes.map(function(r) {
+      return '<option value="' + r.id + '">' + escHtml(r.naam || 'Route') + (r.aflevering ? ' (' + escHtml(r.aflevering) + ')' : '') + '</option>';
+    }).join('');
+  document.getElementById('op-route-succes').innerHTML = opties;
+  document.getElementById('op-route-falen').innerHTML = opties;
+}
+
+// ─── BERICHTEN ────────────────────────────────────────
+var berichtGeschiedenis = [];
+
+function bindBerichtenUI() {
+  // Snelberichten
+  document.querySelectorAll('.snelbericht-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('bericht-tekst').value = btn.dataset.tekst || '';
+      document.getElementById('bericht-emoji').value = btn.dataset.emoji || '';
+      document.querySelectorAll('.snelbericht-btn').forEach(function(b) { b.classList.remove('snelbericht-actief'); });
+      btn.classList.add('snelbericht-actief');
+    });
+  });
+
+  document.getElementById('btn-stuur-bericht').addEventListener('click', function() {
+    stuurBericht(false);
+  });
+  document.getElementById('btn-stuur-bericht-regie').addEventListener('click', function() {
+    stuurBericht(true);
+  });
+}
+
+async function stuurBericht(metAudio) {
+  var tekst = document.getElementById('bericht-tekst').value.trim();
+  if (!tekst) { toast('Typ een bericht', 'warn'); return; }
+  var emoji = document.getElementById('bericht-emoji').value.trim();
+  var audioId = document.getElementById('bericht-audio').value;
+  var payload = { tekst: tekst, emoji: emoji || '💬' };
+  if (metAudio && audioId) {
+    var audioFile = audioFiles.find(function(a) { return a.id === audioId; });
+    if (audioFile) {
+      payload.audio_url = audioFile.url;
+      SignalBus.send('speel_audio', { id: audioFile.id, url: audioFile.url });
+    }
+  }
+  try {
+    await SignalBus.send('bericht', payload);
+    var item = { tekst: tekst, emoji: emoji || '💬', ts: Date.now(), metAudio: metAudio && !!audioId };
+    berichtGeschiedenis.unshift(item);
+    renderBerichtGeschiedenis();
+    document.getElementById('bericht-tekst').value = '';
+    document.getElementById('bericht-emoji').value = '';
+    document.querySelectorAll('.snelbericht-btn').forEach(function(b) { b.classList.remove('snelbericht-actief'); });
+    toast('💬 Bericht verzonden naar spelers');
+  } catch(e) { toast('Versturen mislukt', 'warn'); }
+}
+
+function renderBerichtGeschiedenis() {
+  var el = document.getElementById('bericht-geschiedenis');
+  if (!berichtGeschiedenis.length) { el.innerHTML = '<p class="empty-msg">Nog geen berichten verstuurd.</p>'; return; }
+  el.innerHTML = berichtGeschiedenis.map(function(item) {
+    var tijd = new Date(item.ts).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+    return '<div class="item-card bericht-log-item">' +
+      '<div class="item-info">' +
+      '<strong>' + escHtml(item.emoji) + ' ' + escHtml(item.tekst) + '</strong>' +
+      '<small>' + tijd + (item.metAudio ? ' · 🔊 met audio' : '') + '</small>' +
+      '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function updateBerichtAudioSelect() {
+  var sel = document.getElementById('bericht-audio');
+  sel.innerHTML = '<option value="">— Geen audio —</option>' +
+    audioFiles.map(function(a) { return '<option value="' + a.id + '">' + escHtml(a.naam) + '</option>'; }).join('');
+}
+
+// ─── AUDIO ────────────────────────────────────────────
+async function loadAudioFiles() {
+  try {
+    var r = await API.get('aok_audio', '?limit=100');
+    audioFiles = (r.data || []).filter(function(a) { return !a.deleted; });
+  } catch(e) { audioFiles = []; }
+  renderAudioList();
+  updateOpdrachtAudioSelect();
+  updateBerichtAudioSelect();
+}
+
+function renderAudioList() {
+  var list = document.getElementById('audio-list');
+  if (!audioFiles.length) { list.innerHTML = '<p class="empty-msg">Nog geen audiobestanden.</p>'; return; }
+  list.innerHTML = audioFiles.map(function(a) {
+    return '<div class="item-card">' +
+      '<div class="item-info"><strong>' + escHtml(a.naam) + '</strong><small>' + (a.type || '') + '</small></div>' +
+      '<div class="item-actions">' +
+      '<button class="btn-sm btn-groen" onclick="speelAudioNu(\'' + a.id + '\',\'' + escAttr(a.url) + '\')">▶ Speel nu</button>' +
+      '<button class="btn-sm btn-rood" onclick="verwijderAudio(\'' + a.id + '\')">🗑️</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+function updateOpdrachtAudioSelect() {
+  var opties = '<option value="">— Geen audio —</option>' +
+    audioFiles.map(function(a) { return '<option value="' + a.id + '">' + escHtml(a.naam) + '</option>'; }).join('');
+  document.getElementById('op-audio').innerHTML = opties;
+  document.getElementById('op-audio-succes').innerHTML = opties;
+  document.getElementById('op-audio-falen').innerHTML = opties;
+}
+
+function bindAudioUI() {
+  document.getElementById('btn-audio-toevoegen').addEventListener('click', async function() {
+    var naam = document.getElementById('audio-naam').value.trim();
+    var url = document.getElementById('audio-url').value.trim();
+    if (!naam || !url) { toast('Vul naam en URL in', 'warn'); return; }
+    await API.post('aok_audio', { naam: naam, url: url, type: document.getElementById('audio-type').value });
+    toast('✅ Audio toegevoegd');
+    document.getElementById('audio-naam').value = '';
+    document.getElementById('audio-url').value = '';
+    loadAudioFiles();
+  });
+}
+
+window.speelAudioNu = function(id, url) {
+  SignalBus.send('speel_audio', { id: id, url: url });
+  toast('▶ Audio gestuurd naar spelers');
+};
+
+window.verwijderAudio = async function(id) {
+  if (!confirm('Audio verwijderen?')) return;
+  await API.del('aok_audio', id);
+  toast('Audio verwijderd');
+  loadAudioFiles();
+};
+
+// ─── INSTELLINGEN ─────────────────────────────────────
+function loadSettingsUI() {
+  document.getElementById('s-drempel').value = SettingsStore.get('afwijking_drempel', 500);
+  document.getElementById('s-wachttijd').value = SettingsStore.get('wachttijd', 30);
+  document.getElementById('s-terughaal').checked = SettingsStore.get('terughaal_actief', true);
+  document.getElementById('s-locatie-duur').value = SettingsStore.get('locatie_zichtbaar_duur', 60);
+  document.getElementById('s-toon-route').checked = SettingsStore.get('toon_route', true);
+  document.getElementById('s-toon-bestemming').checked = SettingsStore.get('toon_bestemming', false);
+  var stijl = SettingsStore.get('kaartstijl', '/kaart-stijl.json');
+  var sel = document.getElementById('s-kaartstijl');
+  if (sel) sel.value = stijl;
+  var rv = document.getElementById('s-route-zichtbaar');
+  if (rv) rv.value = SettingsStore.get('route_zichtbaar_vanaf', 'direct');
+}
+
+function bindInstellingenUI() {
+  // Live route aan/uit knoppen
+  document.getElementById('btn-toon-route-nu').addEventListener('click', function() {
+    SignalBus.send('toon_route', {});
+    toast('🗺️ Route tonen gestuurd naar spelers');
+  });
+  document.getElementById('btn-verberg-route-nu').addEventListener('click', function() {
+    SignalBus.send('verberg_route', {});
+    toast('🚫 Route verbergen gestuurd naar spelers');
+  });
+
+  document.getElementById('btn-instellingen-opslaan').addEventListener('click', async function() {
+    await SettingsStore.set('afwijking_drempel', document.getElementById('s-drempel').value);
+    await SettingsStore.set('wachttijd', document.getElementById('s-wachttijd').value);
+    await SettingsStore.set('terughaal_actief', document.getElementById('s-terughaal').checked);
+    await SettingsStore.set('locatie_zichtbaar_duur', document.getElementById('s-locatie-duur').value);
+    await SettingsStore.set('toon_route', document.getElementById('s-toon-route').checked);
+    await SettingsStore.set('toon_bestemming', document.getElementById('s-toon-bestemming').checked);
+    await SettingsStore.set('kaartstijl', document.getElementById('s-kaartstijl').value);
+    await SettingsStore.set('route_zichtbaar_vanaf', document.getElementById('s-route-zichtbaar').value);
+    // Pincode
+    var p1 = String(document.getElementById('s-nieuwe-pin').value).trim();
+    var p2 = String(document.getElementById('s-nieuwe-pin2').value).trim();
+    if (p1) {
+      if (p1 !== p2) { toast('Pincodes komen niet overeen', 'warn'); return; }
+      if (!/^\d{4}$/.test(p1)) { toast('Pincode moet 4 cijfers zijn', 'warn'); return; }
+      await SettingsStore.set('pincode', p1);
+    }
+    SignalBus.send('instellingen_bijgewerkt', {});
+    toast('✅ Instellingen opgeslagen!');
+    var fb = document.getElementById('settings-feedback');
+    fb.textContent = '✅ Opgeslagen om ' + new Date().toLocaleTimeString('nl-NL');
+    fb.classList.remove('hidden');
+    setTimeout(function() { fb.classList.add('hidden'); }, 3000);
+  });
+}
+
+// ─── TOAST ────────────────────────────────────────────
+function toast(msg, type) {
+  var el = document.getElementById('r-toast');
+  el.textContent = msg;
+  el.className = 'r-toast r-toast-' + (type || 'success') + ' r-toast-show';
+  clearTimeout(el._t);
+  el._t = setTimeout(function() { el.className = 'r-toast'; }, 3200);
+}
+</script>
+</body>
+</html>
