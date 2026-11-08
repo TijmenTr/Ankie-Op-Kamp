@@ -2,7 +2,7 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
-**Versie:** v0.31 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+**Versie:** v0.32 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
 
 ## 🗂️ Bestandsstructuur
 
@@ -86,21 +86,23 @@ manifest-regie.json — PWA manifest regischerm
 
 Aparte console voor het maken van de kaartanimatie. Bereikbaar via de knop **🎬 Studio** in de Opname-tab van de regie, of direct op `/studio.html`. Zelfde pincode als de regie.
 
-- **Tijdlijn met datum en tijd**: kies een opname en scrub door de rit. Bovenin de klok (uu:mm:ss) met de datum, daarnaast de positie (lat/lon) en snelheid op dat moment. Drie sporen: **momenten** (opdracht, bericht, off-route), **tempo** (snelheidswissels) en **camera** (keyframes). Klik op een markeerpunt om erheen te springen.
+- **Tijdlijn zoals ReplayMod**: de balk is de **video**, niet de klok. Bovenin staat de klok (uu:mm:ss) met de datum die bij de cursor hoort, daarnaast de positie (lat/lon) en snelheid. Drie sporen: **momenten** (opdracht, bericht, off-route), **tempo** (snelheidswissels) en **camera** (keyframes). Klik op een markeerpunt om erheen te springen. De tijdmarkeringen bovenaan tonen de kloktijd die bij dat punt in de video hoort.
 - **Camera-keyframes (3D)**: zet de kaart zoals je wilt (sleep, zoom, rechtermuisknop + slepen om te draaien en te kantelen, tot 85°) en klik **＋ Keyframe op deze tijd**. Per keyframe kies je:
   - **Volg de spelers** — de camera houdt de pin in beeld en interpoleert alleen zoom, peiling en kanteling.
   - **Vast camerapunt** — de camera blijft daar staan terwijl de spelers doorrijden.
   Tussen twee keyframes wordt alles vloeiend geïnterpoleerd (peiling via de kortste draai). Zonder keyframes volgt de camera automatisch.
-- **Tempo-keyframes**: bepaal per tijdstip hoe snel de tijd daarna loopt (0,25× slow motion tot 60×). Zo houd je een stuk rustig in beeld of spoel je een saai stuk door.
+- **Tempo-wissels**: bepaal per punt in de video hoe snel de wereldtijd daarna loopt (0,25× slow motion tot 60×). De totale videolengte verandert daardoor meteen: 60 s rit met 8× vanaf 10 s wordt 16 s video. Zo houd je een stuk rustig in beeld of spoel je een saai stuk door.
 - **Route op de kaart**: kies een route uit de regie (met de OSRM-stappen) en zet hem aan of uit. Hij komt als lichtblauwe stippellijn onder de gereden baan te liggen.
 - **Live navigatie in beeld**: zet de navigatiebanner aan en de animatie toont de eerstvolgende manoeuvre (pijl, straatnaam, afstand) alsof je meerijdt — dezelfde regels als op het spelersscherm.
 - **Meldingen in beeld**: opdracht-, bericht- en storingskaarten verschijnen op het moment dat ze bij de spelers kwamen, met een korte fade. Duur instelbaar; de off-route-melding blijft staan tot ze terug op de route zijn.
 - **Programmabeeld**: het kaartvlak toont live wat er geëxporteerd wordt (inclusief navigatie, meldingen, titel en klok), met de verhouding van de gekozen exportresolutie.
-- **Hologrammen (PNG)**: laad een PNG met transparante achtergrond; hij komt op het kaartmidden te staan als billboard in de 3D-kaart, met schuifjes voor grootte, draaiing en doorzichtigheid. Klik op de kaart om hem te verplaatsen. Wordt in het project bewaard, dus later aanpasbaar.
+- **Pin van de spelers**: de marker is instelbaar — de standaardstip, een **3D-puck met pijl** (zelf getekend, draait mee met de rijrichting) of een **eigen PNG** met transparante achtergrond. Grootte instelbaar; draaien mee met de rijrichting aan of uit. (Een echt 3D-model-bestand zoals .glb kan MapLibre niet weergeven — een PNG-billboard of de puck komt daar het dichtst bij.)
+- **Start- en finishvlag**: de vlaggen die de spelers zagen staan ook in de animatie, op de routepunten (of op het eerste en laatste trackpunt als er geen route gekozen is). Aan/uit met een vinkje.
+- **Hologrammen (PNG)**: losse PNG-objecten in de kaart, met schuifjes voor grootte, draaiing en doorzichtigheid. Klik op de kaart om ze te verplaatsen. Wordt in het project bewaard, dus later aanpasbaar.
 - **Beeld**: titel + subtitel linksonder, optioneel datum/tijd linksboven en een PNG-logo rechtsonder — alle drie worden bij de export in het beeld gebrand.
 - **Kaart**: **3D-stand (schuin)**, **Pas baan in beeld** en optioneel **3D-hoogte** (terrein via publieke DEM-tiles).
 - **Export**: WebM in 720p/1080p/1440p/4K bij 30 of 60 fps en drie bitrates. De export gebeurt in reële tijd (een animatie van 2 minuten duurt ook 2 minuten).
-- **Project**: camera-keyframes, tempo, hologrammen en titel worden automatisch per opname in de browser bewaard (`localStorage`) en zijn te downloaden/openen als JSON-bestand.
+- **Project**: camera-keyframes, tempo, pin, vlaggen, hologrammen en titel worden automatisch per opname in de browser bewaard (`localStorage`) en zijn te downloaden/openen als JSON-bestand. Projecten van vóór v0.32 worden bij het openen automatisch omgezet naar het nieuwe tijdsmodel.
 
 Let op: de export duurt even lang als de animatie en de browser zet geen duur in het WebM-bestand — sommige spelers tonen daarom een oneindige lengte. Monteren in Premiere/DaVinci gaat goed; anders eerst door Handbrake halen.
 
