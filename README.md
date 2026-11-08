@@ -26,7 +26,7 @@ manifest-regie.json — PWA manifest regischerm
 
 ### Spelersscherm (`speler.html`)
 - **MapLibre GL JS 4.1.3** kaart via OpenFreeMap Liberty tiles
-- **Locatiedot**: alleen zichtbaar als speler te ver van route af is (off-route), verdwijnt bij terugkeer
+- **Locatiedot + centreer-knop**: spelerspijl én de centreer-knop zijn alleen zichtbaar als de live locatie zichtbaar is (off-route, of via regie-signaal `toon_locatie`); ze verdwijnen samen bij terugkeer op de route of bij `verberg_locatie`, en de volgmodus gaat dan uit
 - **Vlaggen**: startlocatie = groene vlag 🚩, bestemming = finishvlag 🏁
 - **Route zichtbaarheid**: blauw pad pas zichtbaar wanneer route actief is in regie (of via `toon_route` signaal)
 - **Turn-by-turn navigatie banner** met pijlicoon, instructie en afstand (OSRM stappen met `steps=true`)

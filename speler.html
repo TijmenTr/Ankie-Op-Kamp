@@ -144,7 +144,7 @@
   </div>
 
   <!-- Centreer / tracking knop -->
-  <button id="btn-centreer" class="btn-centreer" title="Centreer op mijn positie">
+  <button id="btn-centreer" class="btn-centreer hidden" title="Centreer op mijn positie">
     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="2.2"/>
       <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
@@ -473,6 +473,17 @@ function updateSpelerPijl(lat, lon, heading) {
   }
 }
 
+// ─── LOCATIE ZICHTBAAR (pijl + centreer-knop) ─────────
+// De centreer-knop zet de kaart op de speler en verraadt daarmee de locatie.
+// Daarom gaan de pijl-marker en de knop altijd samen aan of uit.
+function setLocatieZichtbaar(zichtbaar) {
+  if (spelerMarkerEl) spelerMarkerEl.style.display = zichtbaar ? '' : 'none';
+  var knop = document.getElementById('btn-centreer');
+  if (knop) knop.classList.toggle('hidden', !zichtbaar);
+  // Als de locatie verborgen wordt, mag de kaart niet blijven meebewegen
+  if (!zichtbaar && volgModus) zetVolgModusUit();
+}
+
 // ─── ROUTE AFWIJKING ──────────────────────────────────
 function checkRouteDeviation(lat, lon) {
   var dist = distanceToRoute(lat, lon, activeRoute.coords);
@@ -529,8 +540,8 @@ async function triggerOffRoute(lat, lon) {
   var alarmEl = document.getElementById('offroute-alarm');
   alarmEl.classList.remove('hidden');
   speelAlarmGeluid();
-  // Toon pijl-marker zodat speler zijn eigen positie ziet
-  if (spelerMarkerEl) spelerMarkerEl.style.display = '';
+  // Toon pijl-marker + centreer-knop zodat speler zijn eigen positie ziet
+  setLocatieZichtbaar(true);
   // Toon volledige melding
   var alertEl = document.getElementById('route-alert');
   alertEl.querySelector('.route-alert-full').classList.remove('hidden');
@@ -610,8 +621,8 @@ function clearOffRoute() {
   alertEl.querySelector('.route-alert-full').classList.remove('hidden');
   alertEl.querySelector('.route-alert-compact').classList.add('hidden');
   document.getElementById('offroute-alarm').classList.add('hidden');
-  // Verberg pijl-marker weer: speler is terug op route
-  if (spelerMarkerEl) spelerMarkerEl.style.display = 'none';
+  // Verberg pijl-marker + centreer-knop weer: speler is terug op route
+  setLocatieZichtbaar(false);
   try {
     if (map && map.getSource('return-route')) {
       map.getSource('return-route').setData(emptyLine());
@@ -1241,10 +1252,10 @@ function playAudioUrl(url) {
 // ─── SIGNALEN VAN REGIE ───────────────────────────────
 function bindSignals() {
   SignalBus.on('toon_locatie',  function() {
-    if (spelerMarkerEl) spelerMarkerEl.style.display = '';
+    setLocatieZichtbaar(true);
   });
   SignalBus.on('verberg_locatie', function() {
-    if (!isOffRoute && spelerMarkerEl) spelerMarkerEl.style.display = 'none';
+    if (!isOffRoute) setLocatieZichtbaar(false);
   });
   SignalBus.on('toon_route', function() { routeZichtbaar = true;  drawRoute(); });
   SignalBus.on('verberg_route', function() { routeZichtbaar = false; drawRoute(); });
