@@ -60,6 +60,7 @@
     <button class="nav-tab" data-tab="opdrachten"><span>📋</span><small>Opdrachten</small></button>
     <button class="nav-tab" data-tab="audio"><span>🔊</span><small>Audio</small></button>
     <button class="nav-tab" data-tab="berichten"><span>💬</span><small>Berichten</small></button>
+    <button class="nav-tab" data-tab="opname"><span>🎬</span><small>Opname</small></button>
     <button class="nav-tab" data-tab="instellingen"><span>⚙️</span><small>Instellingen</small></button>
     <div class="sidebar-status">
       <span id="r-gps-dot" class="gps-dot gps-searching"></span>
@@ -324,6 +325,90 @@
       </div>
     </div>
 
+    <!-- ── TAB: OPNAME ── -->
+    <div id="tab-opname" class="tab-panel hidden">
+      <div id="replay-map"></div>
+
+      <div class="opname-zijpaneel">
+        <div class="card opname-card">
+          <h3>● Opname</h3>
+          <div id="opname-status" class="opname-status">Geen opname actief</div>
+          <div class="form-row">
+            <label>Naam voor de nieuwe opname</label>
+            <input type="text" id="opname-naam" placeholder="bijv. Afl. 3 – dag 1">
+          </div>
+          <div class="form-actions">
+            <button id="btn-opname-start" class="btn-primary btn-sm">● Start</button>
+            <button id="btn-opname-stop" class="btn-ghost btn-sm">■ Stop</button>
+            <button id="btn-opname-vernieuw" class="btn-secondary btn-sm" title="Lijst verversen">↻</button>
+          </div>
+          <p class="hint">De speler schrijft elke ~2 s een punt weg zolang de opname loopt (alleen bij verplaatsing).</p>
+        </div>
+
+        <div class="card opname-card">
+          <h3>📼 Opnames</h3>
+          <div id="opnames-lijst" class="items-list">
+            <p class="empty-msg">Nog geen opnames.</p>
+          </div>
+        </div>
+
+        <div class="card opname-card">
+          <h3>🎥 Camera keyframes</h3>
+          <p class="hint">Zet de kaart op de stand die je wilt (sleep/zoom) en klik op “Keyframe hier”.</p>
+          <div class="form-actions">
+            <button id="btn-keyframe-toevoegen" class="btn-secondary btn-sm">+ Keyframe hier</button>
+            <button id="btn-keyframes-wissen" class="btn-ghost btn-sm">Wis alles</button>
+          </div>
+          <label class="checkbox-label" style="margin-top:0.6rem">
+            <input type="checkbox" id="opname-volg-speler" class="toggle-check" checked>
+            <span>Camera volgt de speler als er geen keyframes zijn</span>
+          </label>
+          <div id="keyframes-lijst" class="keyframes-lijst"></div>
+        </div>
+
+        <div class="card opname-card">
+          <h3>⬇ Exporteren</h3>
+          <div class="form-row">
+            <label>Resolutie</label>
+            <select id="export-resolutie">
+              <option value="1920x1080">1920 × 1080 (Full HD)</option>
+              <option value="2560x1440">2560 × 1440 (QHD)</option>
+              <option value="1280x720">1280 × 720 (HD)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Frames per seconde</label>
+            <select id="export-fps">
+              <option value="30">30 fps</option>
+              <option value="60">60 fps</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button id="btn-export-video" class="btn-primary btn-sm">🎬 Exporteer WebM</button>
+            <button id="btn-export-json" class="btn-secondary btn-sm">⬇ JSON</button>
+          </div>
+          <p id="export-status" class="hint hidden"></p>
+        </div>
+      </div>
+
+      <div class="opname-tijdlijn">
+        <button id="btn-replay-play" class="replay-btn" title="Afspelen">▶</button>
+        <div class="replay-tijd" id="replay-tijd">00:00</div>
+        <div class="replay-slider-wrap">
+          <input type="range" id="replay-slider" min="0" max="1000" value="0" step="10">
+          <div id="replay-events" class="replay-events"></div>
+        </div>
+        <div class="replay-tijd" id="replay-klok" title="Kloktijd">--:--</div>
+        <select id="replay-snelheid" class="replay-snelheid">
+          <option value="0.5">0,5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+          <option value="8">8×</option>
+        </select>
+      </div>
+    </div>
+
     <!-- ── TAB: AUDIO ── -->
     <div id="tab-audio" class="tab-panel hidden">
       <div class="panel-header"><h2>Audiobeheer</h2></div>
@@ -510,6 +595,8 @@ async function initRegie() {
   bindInstellingenUI();
   bindKaartControls();
   bindBerichtenUI();
+  bindOpnameUI();
+  loadOpnames();
   SignalBus.startPolling(2500);
   bindSignalHandlers();
   startPositiePolling();
@@ -519,6 +606,7 @@ async function initRegie() {
 function initTabs() {
   document.querySelectorAll('.nav-tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
+      if (exportBezig) { toast('Exporteren is bezig — even wachten', 'warn'); return; }
       document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
       document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.add('hidden'); });
       tab.classList.add('active');
@@ -527,6 +615,10 @@ function initTabs() {
       if (tab.dataset.tab === 'routes' && !routePreviewMap) initRoutePreviewMap();
       if (tab.dataset.tab === 'opdrachten' && !opdrachtLocMap) initOpdrachtLocMap();
       if (tab.dataset.tab === 'kaart' && regieMap) setTimeout(function(){ regieMap.resize(); }, 50);
+      if (tab.dataset.tab === 'opname') {
+        if (!replayMap) initReplayMap();
+        setTimeout(function(){ if (replayMap) replayMap.resize(); }, 60);
+      }
     });
   });
 }
@@ -1419,6 +1511,685 @@ function toast(msg, type) {
   el.className = 'r-toast r-toast-' + (type || 'success') + ' r-toast-show';
   clearTimeout(el._t);
   el._t = setTimeout(function() { el.className = 'r-toast'; }, 3200);
+}
+
+/* =====================================================
+   OPNAME — rit vastleggen, terugspelen, animatie exporteren
+   ===================================================== */
+
+var replayMap = null;
+var opnamesLijst = [];
+var actieveOpnameId = null;      // opname die nu loopt (volgens aok_settings)
+var geladenOpname = null;        // opname die in de kaart staat
+var trackPunten = [];            // [{ ts, lat, lon, speed, heading }]
+var trackMomenten = [];          // [{ ts, type, titel, tekst, lat, lon }]
+var keyframes = [];              // [{ t, center:[lon,lat], zoom, bearing, pitch }]
+var replayStartTs = 0, replayEindTs = 0, replayHuidigeTs = 0;
+var replaySpeelt = false, replaySnelheid = 1, replayRAF = null, replayVorigFrame = 0;
+var exportBezig = false;
+var laatstePuntTs = 0;
+
+var MOMENT_KLEUREN = {
+  opdracht: '#fbbf24',
+  opdracht_voltooid: '#22c55e',
+  opdracht_gefaald: '#ef4444',
+  bericht: '#60a5fa',
+  van_route_af: '#f97316',
+  terug_op_route: '#14b8a6',
+};
+
+// ─── KAART VOOR TERUGSPELEN ───────────────────────────
+function initReplayMap() {
+  if (replayMap) return;
+  var style = SettingsStore.get('kaartstijl', '/kaart-stijl.json');
+  try {
+    replayMap = new maplibregl.Map({
+      container: 'replay-map',
+      style: style,
+      center: [5.2913, 52.1326],
+      zoom: 7,
+      attributionControl: false,
+      preserveDrawingBuffer: true,   // nodig om het canvas op te kunnen nemen
+    });
+    replayMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+    replayMap.on('load', function() {
+      replayMap.addSource('replay-track', { type: 'geojson', data: emptyLine() });
+      replayMap.addLayer({ id: 'replay-track-bg', type: 'line', source: 'replay-track',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0f2535', 'line-width': 9, 'line-opacity': 0.4 } });
+      replayMap.addLayer({ id: 'replay-track-line', type: 'line', source: 'replay-track',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#1a6fb5', 'line-width': 5 } });
+
+      replayMap.addSource('replay-momenten', { type: 'geojson', data: leegFC() });
+      replayMap.addLayer({ id: 'replay-momenten-dot', type: 'circle', source: 'replay-momenten',
+        paint: { 'circle-radius': 6, 'circle-color': ['get', 'kleur'],
+                 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+
+      replayMap.addSource('replay-subject', { type: 'geojson', data: leegFC() });
+      replayMap.addLayer({ id: 'replay-subject-halo', type: 'circle', source: 'replay-subject',
+        paint: { 'circle-radius': 15, 'circle-color': '#38bdf8', 'circle-opacity': 0.25 } });
+      replayMap.addLayer({ id: 'replay-subject-dot', type: 'circle', source: 'replay-subject',
+        paint: { 'circle-radius': 7, 'circle-color': '#0ea5e9',
+                 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' } });
+
+      if (trackPunten.length) tekenTrack();
+    });
+    window.addEventListener('resize', function() { if (replayMap) replayMap.resize(); });
+  } catch(e) { console.warn('Replay-kaart fout:', e); }
+}
+
+function leegFC() { return { type: 'FeatureCollection', features: [] }; }
+
+function tekenTrack() {
+  if (!replayMap) return;
+  var src = replayMap.getSource('replay-track');
+  if (!src) return;
+  var coords = trackPunten.map(function(p) { return [p.lon, p.lat]; });
+  src.setData(coords.length > 1
+    ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+    : { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+
+  if (replayMap.getSource('replay-momenten')) {
+    replayMap.getSource('replay-momenten').setData({
+      type: 'FeatureCollection',
+      features: trackMomenten.filter(function(m) { return m.lat && m.lon; }).map(function(m) {
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [Number(m.lon), Number(m.lat)] },
+          properties: { kleur: MOMENT_KLEUREN[m.type] || '#94a3b8' },
+        };
+      }),
+    });
+  }
+  renderReplayEvents();
+
+  if (coords.length > 1) {
+    try {
+      var b = coords.reduce(function(acc, c) { return acc.extend(c); },
+        new maplibregl.LngLatBounds(coords[0], coords[0]));
+      replayMap.fitBounds(b, { padding: 90, maxZoom: 15, duration: 600 });
+    } catch(e) {}
+  }
+}
+
+// ─── OPNAMES BEHEREN ──────────────────────────────────
+async function loadOpnames() {
+  try {
+    var r = await API.get('aok_opnames', 'order=gestart.desc&limit=50');
+    opnamesLijst = (r.data || []);
+  } catch(e) { opnamesLijst = []; }
+  await haalActieveOpname();
+  renderOpnames();
+}
+
+async function haalActieveOpname() {
+  try {
+    var r = await API.get('aok_settings', 'sleutel=eq.opname_actief');
+    var row = (r.data || [])[0];
+    var v = (row && row.waarde) ? String(row.waarde).trim() : '';
+    actieveOpnameId = v || null;
+  } catch(e) {}
+  renderOpnameStatus();
+}
+
+function renderOpnameStatus() {
+  var el = document.getElementById('opname-status');
+  if (!el) return;
+  if (actieveOpnameId) {
+    var op = opnamesLijst.find(function(o) { return o.id === actieveOpnameId; });
+    var sub = laatstePuntTs
+      ? 'laatste punt ' + Math.round((Date.now() - laatstePuntTs) / 1000) + ' s geleden'
+      : 'nog geen punten ontvangen';
+    el.className = 'opname-status actief';
+    el.innerHTML = '● Opname loopt' + (op ? ': ' + escHtml(op.naam || 'naamloos') : '') +
+      '<small>' + (op ? 'gestart ' + tijdKort(op.gestart) + ' · ' : '') + sub + '</small>';
+  } else {
+    el.className = 'opname-status';
+    el.textContent = 'Geen opname actief';
+  }
+}
+
+function renderOpnames() {
+  var lijst = document.getElementById('opnames-lijst');
+  if (!lijst) return;
+  if (!opnamesLijst.length) { lijst.innerHTML = '<p class="empty-msg">Nog geen opnames.</p>'; return; }
+  lijst.innerHTML = opnamesLijst.map(function(o) {
+    var loopt = (o.id === actieveOpnameId);
+    var geladen = (geladenOpname && geladenOpname.id === o.id);
+    return '<div class="item-card opname-item' + (geladen ? ' item-laden' : '') + '" data-opname-id="' + escHtml(o.id) + '">' +
+      '<div class="item-info"><strong>' + escHtml(o.naam || 'Opname') +
+        (loopt ? ' <span class="opname-actief-badge">LOOPT</span>' : '') + '</strong>' +
+        '<small>' + tijdKort(o.gestart) + (o.gestopt ? ' → ' + tijdKort(o.gestopt) : ' · nog bezig') + '</small></div>' +
+      '<div class="item-actions">' +
+        '<button class="btn-sm btn-rood" onclick="verwijderOpname(\'' + o.id + '\')">🗑️</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+async function startOpnameRegie() {
+  if (actieveOpnameId) { toast('Er loopt al een opname — stop die eerst', 'warn'); return; }
+  var naam = document.getElementById('opname-naam').value.trim();
+  if (!naam) naam = 'Opname ' + new Date().toLocaleString('nl-NL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  try {
+    var op = await API.post('aok_opnames', { naam: naam, gestart: new Date().toISOString(), bron: 'regie' });
+    if (!op || !op.id) throw new Error('geen id terug');
+    await SettingsStore.set('opname_actief', op.id);
+    SignalBus.send('opname_start', { id: op.id, naam: naam });
+    document.getElementById('opname-naam').value = '';
+    laatstePuntTs = 0;
+    toast('● Opname gestart: ' + naam);
+    await loadOpnames();
+  } catch(e) { toast('Starten mislukt: ' + e.message, 'warn'); }
+}
+
+async function stopOpnameRegie() {
+  if (!actieveOpnameId) { toast('Er loopt geen opname', 'warn'); return; }
+  try {
+    await API.patch('aok_opnames', actieveOpnameId, { gestopt: new Date().toISOString() });
+    await SettingsStore.set('opname_actief', '');
+    SignalBus.send('opname_stop', {});
+    toast('■ Opname gestopt');
+    await loadOpnames();
+  } catch(e) { toast('Stoppen mislukt: ' + e.message, 'warn'); }
+}
+
+window.verwijderOpname = async function(id) {
+  if (!confirm('Deze opname met alle trackpunten verwijderen?')) return;
+  try {
+    await API.del('aok_opnames', id);
+    if (actieveOpnameId === id) {
+      await SettingsStore.set('opname_actief', '');
+      SignalBus.send('opname_stop', {});
+    }
+    if (geladenOpname && geladenOpname.id === id) {
+      geladenOpname = null; trackPunten = []; trackMomenten = [];
+      tekenTrack(); renderReplayEvents();
+    }
+    toast('Opname verwijderd');
+    loadOpnames();
+  } catch(e) { toast('Verwijderen mislukt', 'warn'); }
+};
+
+// ─── OPNAME INLADEN ───────────────────────────────────
+async function laadOpname(id) {
+  var op = opnamesLijst.find(function(o) { return o.id === id; });
+  if (!op) return;
+  pauzeerReplay();
+  geladenOpname = op;
+  renderOpnames();
+  toast('Opname laden…');
+
+  try {
+    trackPunten = (await haalAlleRijen('aok_track', id))
+      .map(function(p) {
+        return { ts: Number(p.ts), lat: Number(p.lat), lon: Number(p.lon),
+                 speed: Number(p.speed) || 0, heading: Number(p.heading) || 0 };
+      })
+      .filter(function(p) { return isFinite(p.ts) && isFinite(p.lat) && isFinite(p.lon); })
+      .sort(function(a, b) { return a.ts - b.ts; });
+    trackMomenten = (await haalAlleRijen('aok_events', id))
+      .map(function(m) { return { ts: Number(m.ts), type: m.type, titel: m.titel, tekst: m.tekst,
+                                  lat: m.lat ? Number(m.lat) : null, lon: m.lon ? Number(m.lon) : null }; })
+      .filter(function(m) { return isFinite(m.ts); })
+      .sort(function(a, b) { return a.ts - b.ts; });
+  } catch(e) {
+    toast('Laden mislukt: ' + e.message, 'warn');
+    return;
+  }
+
+  if (!trackPunten.length) {
+    toast('Deze opname heeft nog geen punten', 'warn');
+    replayStartTs = replayEindTs = 0;
+    tekenTrack();
+    return;
+  }
+
+  replayStartTs = trackPunten[0].ts;
+  replayEindTs = trackPunten[trackPunten.length - 1].ts;
+  keyframes = [];
+  renderKeyframes();
+  tekenTrack();
+  zetReplayTijd(replayStartTs);
+  toast('✅ ' + trackPunten.length + ' punten · ' + trackMomenten.length + ' momenten');
+}
+
+async function haalAlleRijen(tabel, opnameId) {
+  var alles = [], offset = 0, pagina = 1000;
+  while (true) {
+    var r = await API.get(tabel, 'opname_id=eq.' + opnameId + '&order=ts.asc&limit=' + pagina + '&offset=' + offset);
+    var rows = r.data || [];
+    alles = alles.concat(rows);
+    if (rows.length < pagina) break;
+    offset += pagina;
+    if (offset > 100000) break;   // veiligheidsklep
+  }
+  return alles;
+}
+
+// ─── TERUGSPELEN ──────────────────────────────────────
+function positieOpTijd(ts) {
+  var n = trackPunten.length;
+  if (!n) return null;
+  if (ts <= trackPunten[0].ts) return trackPunten[0];
+  if (ts >= trackPunten[n - 1].ts) return trackPunten[n - 1];
+  var lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    var mid = (lo + hi) >> 1;
+    if (trackPunten[mid].ts <= ts) lo = mid; else hi = mid;
+  }
+  var a = trackPunten[lo], b = trackPunten[hi];
+  var f = (ts - a.ts) / Math.max(1, b.ts - a.ts);
+  return { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f,
+           speed: a.speed, heading: a.heading };
+}
+
+function cameraOpTijd(ts) {
+  if (!keyframes.length) return null;
+  var t = ts - replayStartTs;
+  if (t <= keyframes[0].t) return keyframes[0];
+  var laatste = keyframes[keyframes.length - 1];
+  if (t >= laatste.t) return laatste;
+  var i = 0;
+  while (i < keyframes.length - 1 && keyframes[i + 1].t <= t) i++;
+  var a = keyframes[i], b = keyframes[i + 1];
+  var f = (t - a.t) / Math.max(1, b.t - a.t);
+  var peilingVerschil = ((b.bearing - a.bearing + 540) % 360) - 180;   // kortste draai
+  return {
+    center: [a.center[0] + (b.center[0] - a.center[0]) * f,
+             a.center[1] + (b.center[1] - a.center[1]) * f],
+    zoom: a.zoom + (b.zoom - a.zoom) * f,
+    bearing: a.bearing + peilingVerschil * f,
+    pitch: a.pitch + (b.pitch - a.pitch) * f,
+  };
+}
+
+function zetReplayTijd(ts) {
+  if (!trackPunten.length) return;
+  replayHuidigeTs = Math.max(replayStartTs, Math.min(replayEindTs, ts));
+  var duur = Math.max(1, replayEindTs - replayStartTs);
+  var slider = document.getElementById('replay-slider');
+  slider.max = duur;
+  slider.value = replayHuidigeTs - replayStartTs;
+  document.getElementById('replay-tijd').textContent = mmss(replayHuidigeTs - replayStartTs);
+  document.getElementById('replay-klok').textContent = klokTijd(replayHuidigeTs);
+
+  var pos = positieOpTijd(replayHuidigeTs);
+  if (pos && replayMap && replayMap.getSource('replay-subject')) {
+    replayMap.getSource('replay-subject').setData({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
+    });
+  }
+  updateCamera(replayHuidigeTs, pos);
+}
+
+function updateCamera(ts, pos) {
+  if (!replayMap) return;
+  var cam = cameraOpTijd(ts);
+  if (cam) {
+    replayMap.jumpTo({ center: cam.center, zoom: cam.zoom, bearing: cam.bearing, pitch: cam.pitch });
+  } else if (document.getElementById('opname-volg-speler').checked && pos) {
+    replayMap.jumpTo({ center: [pos.lon, pos.lat], zoom: Math.max(replayMap.getZoom(), 14) });
+  }
+}
+
+function speelReplay() {
+  if (!trackPunten.length) { toast('Laad eerst een opname', 'warn'); return; }
+  if (replaySpeelt) return;
+  if (replayHuidigeTs >= replayEindTs) zetReplayTijd(replayStartTs);
+  replaySpeelt = true;
+  replayVorigFrame = performance.now();
+  document.getElementById('btn-replay-play').textContent = '❚❚';
+  replayRAF = requestAnimationFrame(replayFrame);
+}
+
+function pauzeerReplay() {
+  replaySpeelt = false;
+  if (replayRAF) cancelAnimationFrame(replayRAF);
+  replayRAF = null;
+  var knop = document.getElementById('btn-replay-play');
+  if (knop) knop.textContent = '▶';
+}
+
+function replayFrame(nu) {
+  if (!replaySpeelt) return;
+  var dt = nu - replayVorigFrame;
+  replayVorigFrame = nu;
+  var volgende = replayHuidigeTs + dt * replaySnelheid;
+  if (volgende >= replayEindTs) { zetReplayTijd(replayEindTs); pauzeerReplay(); return; }
+  zetReplayTijd(volgende);
+  replayRAF = requestAnimationFrame(replayFrame);
+}
+
+function renderReplayEvents() {
+  var wrap = document.getElementById('replay-events');
+  if (!wrap) return;
+  var duur = replayEindTs - replayStartTs;
+  if (!trackPunten.length || duur <= 0) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = trackMomenten.map(function(m) {
+    var pct = Math.max(0, Math.min(100, ((m.ts - replayStartTs) / duur) * 100));
+    var kleur = MOMENT_KLEUREN[m.type] || '#94a3b8';
+    var titel = (m.titel || m.type) + ' — ' + klokTijd(m.ts);
+    return '<span class="replay-event" style="left:' + pct.toFixed(3) + '%;background:' + kleur + '"' +
+      ' title="' + escAttr(titel) + '" data-ts="' + m.ts + '"></span>';
+  }).join('');
+  wrap.querySelectorAll('.replay-event').forEach(function(el) {
+    el.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      pauzeerReplay();
+      zetReplayTijd(Number(el.dataset.ts));
+    });
+  });
+}
+
+// ─── KEYFRAMES ────────────────────────────────────────
+function voegKeyframeToe() {
+  if (!replayMap || !trackPunten.length) { toast('Laad eerst een opname', 'warn'); return; }
+  var t = replayHuidigeTs - replayStartTs;
+  var c = replayMap.getCenter();
+  keyframes.push({ t: t, center: [c.lng, c.lat], zoom: replayMap.getZoom(),
+                   bearing: replayMap.getBearing(), pitch: replayMap.getPitch() });
+  keyframes.sort(function(a, b) { return a.t - b.t; });
+  renderKeyframes();
+  toast('🎥 Keyframe op ' + mmss(t));
+}
+
+function renderKeyframes() {
+  var el = document.getElementById('keyframes-lijst');
+  if (!el) return;
+  if (!keyframes.length) {
+    el.innerHTML = '<p class="hint">Nog geen keyframes — de camera volgt dan de speler.</p>';
+    return;
+  }
+  el.innerHTML = keyframes.map(function(k, i) {
+    return '<div class="keyframe-item" data-kf-idx="' + i + '">' +
+      '<span class="kf-tijd">' + mmss(k.t) + '</span>' +
+      '<span class="kf-info">zoom ' + k.zoom.toFixed(1) + ' · peiling ' + Math.round(k.bearing) + '°' +
+        (k.pitch ? ' · kanteling ' + Math.round(k.pitch) + '°' : '') + '</span>' +
+      '<button title="Verwijderen" data-kf-del="' + i + '">✕</button>' +
+      '</div>';
+  }).join('');
+  el.querySelectorAll('[data-kf-del]').forEach(function(b) {
+    b.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      keyframes.splice(parseInt(b.dataset.kfDel, 10), 1);
+      renderKeyframes();
+    });
+  });
+  el.querySelectorAll('[data-kf-idx]').forEach(function(item) {
+    item.addEventListener('click', function() {
+      pauzeerReplay();
+      zetReplayTijd(replayStartTs + keyframes[parseInt(item.dataset.kfIdx, 10)].t);
+    });
+  });
+}
+
+// ─── EXPORT ───────────────────────────────────────────
+function mmss(ms) {
+  var s = Math.max(0, Math.floor(ms / 1000));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+function klokTijd(ts) {
+  var d = new Date(Number(ts));
+  if (isNaN(d.getTime())) return '--:--';
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') +
+         ':' + String(d.getSeconds()).padStart(2, '0');
+}
+
+function tijdKort(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('nl-NL', { day: '2-digit', month: 'short' }) + ' ' +
+         d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+}
+
+function veiligeNaam(s) {
+  return String(s || 'opname').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'opname';
+}
+
+function downloadBestand(inhoud, bestandsnaam, mime) {
+  var blob = (inhoud instanceof Blob) ? inhoud : new Blob([inhoud], { type: mime || 'application/octet-stream' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = bestandsnaam;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() {
+    if (a.parentNode) a.parentNode.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 1500);
+}
+
+function toonExportOverlay(tekst) {
+  var el = document.getElementById('export-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'export-overlay';
+    el.className = 'export-overlay';
+    document.body.appendChild(el);
+  }
+  el.textContent = tekst;
+  el.style.display = 'flex';
+}
+
+function verbergExportOverlay() {
+  var el = document.getElementById('export-overlay');
+  if (el) el.style.display = 'none';
+}
+
+function exporteerJSON() {
+  if (!geladenOpname || !trackPunten.length) { toast('Laad eerst een opname', 'warn'); return; }
+  var data = {
+    versie: 'v0.28',
+    geexporteerd: new Date().toISOString(),
+    opname: {
+      id: geladenOpname.id,
+      naam: geladenOpname.naam,
+      gestart: geladenOpname.gestart,
+      gestopt: geladenOpname.gestopt,
+    },
+    tijdbasis: {
+      start_ms: replayStartTs,
+      eind_ms: replayEindTs,
+      duur_ms: replayEindTs - replayStartTs,
+      start_iso: new Date(replayStartTs).toISOString(),
+      eind_iso: new Date(replayEindTs).toISOString(),
+    },
+    track: trackPunten,
+    momenten: trackMomenten,
+    keyframes: keyframes.map(function(k) {
+      return {
+        t_ms: k.t,
+        iso: new Date(replayStartTs + k.t).toISOString(),
+        center: k.center,
+        zoom: k.zoom,
+        bearing: k.bearing,
+        pitch: k.pitch,
+      };
+    }),
+  };
+  downloadBestand(JSON.stringify(data, null, 2),
+    veiligeNaam(geladenOpname.naam) + '-baan.json', 'application/json');
+  toast('⬇ JSON gedownload');
+}
+
+async function exporteerVideo() {
+  if (exportBezig) return;
+  if (!replayMap || !trackPunten.length) { toast('Laad eerst een opname', 'warn'); return; }
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    toast('Deze browser kan geen video opnemen — gebruik Chrome of Edge', 'warn');
+    return;
+  }
+
+  var resolutie = document.getElementById('export-resolutie').value.split('x');
+  var W = parseInt(resolutie[0], 10) || 1920;
+  var H = parseInt(resolutie[1], 10) || 1080;
+  var fps = parseInt(document.getElementById('export-fps').value, 10) || 30;
+  var dpr = window.devicePixelRatio || 1;
+  var duurMs = replayEindTs - replayStartTs;
+  if (duurMs <= 0) { toast('Deze opname is te kort', 'warn'); return; }
+  if (duurMs > 10 * 60 * 1000 &&
+      !confirm('Deze animatie duurt ' + mmss(duurMs) + ' en wordt in reële tijd opgenomen.\n' +
+               'Dat kan lang duren (en het bestand wordt groot). Doorgaan?')) return;
+
+  exportBezig = true;
+  pauzeerReplay();
+  var knop = document.getElementById('btn-export-video');
+  knop.disabled = true;
+  toonExportOverlay('Video opnemen… 00:00 / ' + mmss(duurMs));
+
+  // Kaart tijdelijk op de exportresolutie zetten (canvas wordt precies W×H)
+  var container = document.getElementById('replay-map');
+  var cssBreed = Math.round(W / dpr), cssHoog = Math.round(H / dpr);
+  container.style.position = 'absolute';
+  container.style.left = '0';
+  container.style.top = '0';
+  container.style.right = 'auto';
+  container.style.bottom = 'auto';
+  container.style.width = cssBreed + 'px';
+  container.style.height = cssHoog + 'px';
+  replayMap.resize();
+  await new Promise(function(r) { setTimeout(r, 400); });
+
+  var canvas = replayMap.getCanvas();
+  var videoBreedte = canvas.width, videoHoogte = canvas.height;
+  // captureStream(0) + requestFrame() per getekend kaartframe is de betrouwbare
+  // route: met een vaste fps (captureStream(30)) levert Chrome lege opnames op.
+  var stream = canvas.captureStream(0);
+  var videoTrack = stream.getVideoTracks()[0];
+  var minFrameMs = 1000 / fps;
+  var laatsteFrame = 0;
+  function stuurFrame() {
+    if (!videoTrack || !videoTrack.requestFrame) return;
+    var nuFrame = performance.now();
+    if (nuFrame - laatsteFrame < minFrameMs) return;
+    laatsteFrame = nuFrame;
+    videoTrack.requestFrame();
+  }
+  replayMap.on('render', stuurFrame);
+
+  var mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+    .filter(function(m) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m); })[0];
+  if (!mime) mime = '';
+
+  var recorder;
+  try {
+    recorder = new MediaRecorder(stream, mime
+      ? { mimeType: mime, videoBitsPerSecond: Math.round(W * H * fps * 0.12) }
+      : { videoBitsPerSecond: Math.round(W * H * fps * 0.12) });
+  } catch(e) {
+    herstelNaExport();
+    exportBezig = false;
+    knop.disabled = false;
+    verbergExportOverlay();
+    toast('Opnemen starten mislukt: ' + e.message, 'warn');
+    return;
+  }
+
+  var chunks = [];
+  recorder.ondataavailable = function(e) { if (e.data && e.data.size) chunks.push(e.data); };
+  var gestopt = new Promise(function(res) { recorder.onstop = res; });
+
+  var oudeSnelheid = replaySnelheid;
+  replaySnelheid = 1;
+  zetReplayTijd(replayStartTs);
+  recorder.start(250);
+  speelReplay();
+
+  var startMoment = performance.now();
+  var voortgang = setInterval(function() {
+    toonExportOverlay('Video opnemen… ' + mmss(performance.now() - startMoment) + ' / ' + mmss(duurMs) +
+      '\nLaat dit venster openstaan.');
+  }, 300);
+
+  await new Promise(function(res) {
+    var wacht = setInterval(function() { if (!replaySpeelt) { clearInterval(wacht); res(); } }, 100);
+  });
+  clearInterval(voortgang);
+  await new Promise(function(r) { setTimeout(r, 400); });   // laatste frames binnenhalen
+  recorder.stop();
+  await gestopt;
+  replayMap.off('render', stuurFrame);
+
+  var blob = new Blob(chunks, { type: 'video/webm' });
+  replaySnelheid = oudeSnelheid;
+  herstelNaExport();
+  exportBezig = false;
+  knop.disabled = false;
+  verbergExportOverlay();
+
+  if (!blob.size) { toast('Er is geen video opgenomen — probeer opnieuw', 'warn'); return; }
+  downloadBestand(blob, veiligeNaam(geladenOpname && geladenOpname.naam) + '-animatie.webm', 'video/webm');
+  toast('🎬 Video gedownload (' + (blob.size / 1048576).toFixed(1) + ' MB · ' +
+        videoBreedte + '×' + videoHoogte + ')');
+}
+
+function herstelNaExport() {
+  var container = document.getElementById('replay-map');
+  if (container) container.removeAttribute('style');
+  if (replayMap) replayMap.resize();
+}
+
+// ─── UI KOPPELEN ──────────────────────────────────────
+function bindOpnameUI() {
+  document.getElementById('btn-opname-start').addEventListener('click', startOpnameRegie);
+  document.getElementById('btn-opname-stop').addEventListener('click', stopOpnameRegie);
+  document.getElementById('btn-opname-vernieuw').addEventListener('click', function() {
+    loadOpnames();
+    toast('Lijst verversd');
+  });
+  document.getElementById('opname-naam').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') startOpnameRegie();
+  });
+
+  document.getElementById('opnames-lijst').addEventListener('click', function(e) {
+    if (e.target.closest('button')) return;      // verwijderknop niet als "openen" zien
+    var item = e.target.closest('[data-opname-id]');
+    if (!item) return;
+    laadOpname(item.getAttribute('data-opname-id'));
+  });
+
+  document.getElementById('btn-replay-play').addEventListener('click', function() {
+    if (replaySpeelt) pauzeerReplay(); else speelReplay();
+  });
+  document.getElementById('replay-slider').addEventListener('input', function() {
+    pauzeerReplay();
+    zetReplayTijd(replayStartTs + Number(this.value));
+  });
+  document.getElementById('replay-snelheid').addEventListener('change', function() {
+    replaySnelheid = parseFloat(this.value) || 1;
+  });
+
+  document.getElementById('btn-keyframe-toevoegen').addEventListener('click', voegKeyframeToe);
+  document.getElementById('btn-keyframes-wissen').addEventListener('click', function() {
+    if (!keyframes.length) return;
+    if (!confirm('Alle keyframes wissen?')) return;
+    keyframes = [];
+    renderKeyframes();
+  });
+
+  document.getElementById('btn-export-video').addEventListener('click', exporteerVideo);
+  document.getElementById('btn-export-json').addEventListener('click', exporteerJSON);
+
+  renderKeyframes();
+
+  // Elke 5 s: loopt de opname nog, en komt er data binnen?
+  setInterval(async function() {
+    if (exportBezig) return;
+    await haalActieveOpname();
+    if (actieveOpnameId) {
+      try {
+        var r = await API.get('aok_track', 'opname_id=eq.' + actieveOpnameId + '&order=ts.desc&limit=1');
+        var laatste = (r.data || [])[0];
+        laatstePuntTs = laatste ? Number(laatste.ts) : 0;
+      } catch(e) {}
+      renderOpnameStatus();
+    }
+  }, 5000);
 }
 </script>
 </body>

@@ -2,6 +2,8 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
+**Versie:** v0.28 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+
 ## 🗂️ Bestandsstructuur
 
 ```
@@ -43,6 +45,7 @@ manifest-regie.json — PWA manifest regischerm
 - **Terugkeerroute**: **felgele lijn** (`#FFD600`) als speler te ver afdwaalt — duidelijk zichtbaar op de zandkleurige kaart en naast de blauwe hoofdroute
 - **GPS polling** + PositieStore voor positiedeling met regie
 - **SignalBus polling** elke 2,5s voor inkomende signalen
+- **Opname (v0.28)**: zolang er in de regie een opname loopt, schrijft de speler elke ~2 s een trackpunt weg in `aok_track` (alleen bij verplaatsing > 3 m, met een hartslag elke 30 s) en logt hij momenten in `aok_events`: opdracht getoond/voltooid/gefaald, bericht van de regie, van route af en terug op route. In de statusbalk staat dan een rode **REC**-indicator. Start/stopt via `opname_start` / `opname_stop` en via de instelling `opname_actief`, zodat een herlaadbeurt midden in een rit de opname hervat.
 
 ### Regischerm (`regie.html`)
 - **PIN-beveiliging** (standaard 1234, instelbaar)
@@ -65,6 +68,14 @@ manifest-regie.json — PWA manifest regischerm
   - Berichtgeschiedenis
   - Stuur als overlay naar spelersscherm
 - **Instellingen tab**: afwijkingsdrempel, wachttijd, route zichtbaarheid (direct/handmatig/afwijking), toon/verberg route live, kaartstijl, pincode wijzigen
+- **🎬 Opname tab** (v0.28) — rit terugkijken en animatie exporteren:
+  - **Opname starten/stoppen** met een naam; de speler schrijft dan trackpunten + momenten weg
+  - **Opnames-lijst** met datum, looptijd en verwijderknop; klik = inladen in de kaart
+  - **Terugspelen**: tijdlijn met play/pause, scrubber, snelheid 0,5×–8×, kloktijd en gekleurde markers voor de momenten (opdracht, bericht, off-route)
+  - **Camera keyframes**: zet de kaart op de gewenste stand en klik "Keyframe hier" (tijd, positie, zoom, peiling, kanteling). Zonder keyframes volgt de camera de speler
+  - **Export WebM**: neemt het kaartbeeld op in 1280×720, 1920×1080 of 2560×1440 bij 30 of 60 fps, met de keyframes als camerabeweging
+  - **Export JSON**: baan, momenten en keyframes met tijdstempels, om later opnieuw of in een montage-app te gebruiken
+  - **Let op bij WebM**: de export duurt even lang als de animatie zelf (opnemen gebeurt in reële tijd) en de browser zet geen duur in het bestand — sommige spelers tonen daarom een oneindige lengte. Importeren in Premiere/DaVinci gaat goed; anders eerst door Handbrake halen.
 - **SignalBus handlers**: `van_route_af`, `terug_op_route`, `opdracht_voltooid`, `opdracht_gefaald` (toast)
 
 ## 🗄️ Supabase tabellen
@@ -77,6 +88,9 @@ manifest-regie.json — PWA manifest regischerm
 | `aok_positie` | Enkelvoudige GPS-positie van spelers (upsert pattern) |
 | `aok_signalen` | SignalBus berichten (type, payload, ts, gelezen) |
 | `aok_audio` | Audio-bestandencatalogus |
+| `aok_opnames` | Opnamen/sessies (naam, gestart, gestopt) — v0.28 |
+| `aok_track` | Trackpunten per opname (ts, lat, lon, speed, heading, accuracy) — v0.28 |
+| `aok_events` | Momenten per opname (opdracht, bericht, off-route) — v0.28 |
 
 ### Supabase verbinding
 - URL: `https://jafyymqqcsjszbfgfbqj.supabase.co`
@@ -88,6 +102,32 @@ manifest-regie.json — PWA manifest regischerm
 Als de Supabase database al bestond zonder de nieuwe `aok_opdrachten` kolommen, run dan het upgrade-blok onderaan `supabase_setup.sql` in de Supabase SQL Editor. Dit voegt de nieuwe kolommen veilig toe zonder data te verliezen:
 - `timer_seconden`, `stop_bij_locatie`, `stop_lat`, `stop_lon`, `stop_straal`
 - `beloning`, `straf`, `route_bij_succes`, `route_bij_falen`
+
+### Ronde 4 — opnames (v0.28)
+
+Voor de Opname-tab zijn drie nieuwe tabellen nodig. Het blok **"RONDE 4 — OPNAMES"** onderaan `supabase_setup.sql` maakt ze aan (plus indexen en RLS-policies) en is veilig om opnieuw te draaien:
+
+```sql
+CREATE TABLE IF NOT EXISTS aok_opnames (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  naam text, gestart timestamptz DEFAULT now(), gestopt timestamptz,
+  bron text DEFAULT 'regie', created_at timestamptz DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS aok_track (
+  id bigserial PRIMARY KEY,
+  opname_id uuid REFERENCES aok_opnames(id) ON DELETE CASCADE,
+  ts bigint, lat double precision, lon double precision,
+  speed double precision DEFAULT 0, heading double precision DEFAULT 0,
+  accuracy double precision DEFAULT 0, created_at timestamptz DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS aok_events (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  opname_id uuid REFERENCES aok_opnames(id) ON DELETE CASCADE,
+  ts bigint, type text, titel text, tekst text, payload text,
+  lat double precision, lon double precision, created_at timestamptz DEFAULT now());
+```
+
+Zonder dit blok werkt de rest van de app gewoon; alleen de Opname-tab blijft dan leeg.
 
 ## 🌐 Deployment
 
@@ -114,3 +154,6 @@ Als de Supabase database al bestond zonder de nieuwe `aok_opdrachten` kolommen, 
 - Export/import routes als GPX of GeoJSON
 - Supabase Realtime i.p.v. polling voor lagere latency
 - Opdracht-status badges in regischerm bijwerken na gefaald-signaal
+- Opname: puntenteller/afstand per opname in de lijst
+- Opname: meerdere camera-tracks of een "auto-volg met vaste afstand" naast keyframes
+- Opname: momenten als labels/bijschriften in het kaartbeeld branden bij export

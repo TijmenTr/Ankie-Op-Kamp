@@ -157,6 +157,7 @@
     <span id="gps-indicator" class="gps-dot gps-searching"></span>
     <span id="gps-label">GPS zoeken…</span>
     <span class="status-sep">|</span>
+    <span id="rec-indicator" class="rec-indicator hidden"><span class="rec-dot"></span>REC</span>
     <span id="sync-label">Verbinden…</span>
   </div>
 
@@ -199,6 +200,11 @@ var stopwatchMs = 0;
 var stopwatchRunning = false;
 var timerBannerResterend = 0;
 var timerBannerActiefOpdracht = null;
+// Opname (rit vastleggen voor terugspelen/animatie in de regie)
+var opnameId = null;            // actieve opname-id, null = niet opnemen
+var laatsteTrackTs = 0;         // tijdstip van het laatst weggeschreven trackpunt
+var laatsteTrackPos = null;     // {lat, lon} van het laatst weggeschreven trackpunt
+var opnameCheckTeller = 0;      // elke 5e sync-ronde de opnamestatus controleren
 
 // ─── START ────────────────────────────────────────────
 document.getElementById('btn-start-rit').addEventListener('click', function() {
@@ -257,6 +263,7 @@ async function initApp() {
   loadActiveRoute().catch(function(e){ console.warn('route laden:', e); });
   loadPendingOpdrachten().catch(function(e){ console.warn('opdrachten laden:', e); });
   loadAudioCatalog().catch(function(e){});
+  haalOpnameStatus().catch(function(e){});   // loopt er al een opname? dan meteen meeschrijven
   SignalBus.startPolling(2500);
   bindSignals();
   requestWakeLock();
@@ -394,6 +401,7 @@ function onGPS(pos) {
   document.getElementById('gps-label').textContent = 'GPS ±' + Math.round(acc) + 'm';
 
   PositieStore.push(lat, lon, acc, spd, hdg);
+  trackPunt(lat, lon, spd, hdg, acc);   // alleen iets doen als er een opname loopt
 
   // Eerste GPS fix: centreer kaart als er nog geen route is
   if (!currentPos && !activeRoute.coords.length) map.flyTo({ center: [lon, lat], zoom: 14 });
@@ -434,6 +442,78 @@ function onGPSError(err) {
   document.getElementById('gps-indicator').className = 'gps-dot gps-error';
   var msgs = { 1:'GPS geweigerd', 2:'GPS niet beschikbaar', 3:'GPS timeout' };
   document.getElementById('gps-label').textContent = msgs[err.code] || 'GPS fout';
+}
+
+// ─── OPNAME (track + momenten vastleggen) ─────────────
+// De regie bepaalt of er opgenomen wordt. Het actieve opname-id staat in
+// aok_settings onder 'opname_actief' en komt ook als signaal binnen, zodat
+// opnemen direct start/stopt en na een herlaadbeurt automatisch doorgaat.
+
+async function haalOpnameStatus() {
+  var r = await API.get('aok_settings', 'sleutel=eq.opname_actief');
+  var row = (r.data || [])[0];
+  var id = row && row.waarde ? String(row.waarde).trim() : '';
+  if (id && id !== opnameId) startOpname(id);
+  else if (!id && opnameId) stopOpname();
+}
+
+function startOpname(id) {
+  if (!id) return;
+  opnameId = id;
+  laatsteTrackTs = 0;
+  laatsteTrackPos = null;
+  var el = document.getElementById('rec-indicator');
+  if (el) el.classList.remove('hidden');
+  // Meteen een eerste punt, zodat de opname niet leeg begint
+  if (currentPos) trackPunt(currentPos.lat, currentPos.lon, null, null, null, true);
+}
+
+function stopOpname() {
+  opnameId = null;
+  laatsteTrackPos = null;
+  var el = document.getElementById('rec-indicator');
+  if (el) el.classList.add('hidden');
+}
+
+// Niet elk GPS-punt wegschrijven: hooguit één per 2 seconden, en alleen bij
+// verplaatsing van meer dan 3 m (of elke 30 s als ze stil staan).
+function trackPunt(lat, lon, speed, heading, accuracy, force) {
+  if (!opnameId) return;
+  var nu = Date.now();
+  if (!force) {
+    if (nu - laatsteTrackTs < 2000) return;
+    if (laatsteTrackPos &&
+        haversineM(lat, lon, laatsteTrackPos.lat, laatsteTrackPos.lon) < 3 &&
+        nu - laatsteTrackTs < 30000) return;
+  }
+  laatsteTrackTs = nu;
+  laatsteTrackPos = { lat: lat, lon: lon };
+  try {
+    API.post('aok_track', {
+      opname_id: opnameId,
+      ts: nu,
+      lat: lat,
+      lon: lon,
+      speed: speed || 0,
+      heading: heading || 0,
+      accuracy: accuracy || 0,
+    }).catch(function(){});
+  } catch(e) {}
+}
+
+// Momenten op de tijdlijn (opdracht, bericht, off-route) zodat ze later in de
+// animatie terug te zien zijn op het moment dat ze gebeurden.
+function logMoment(type, titel, tekst) {
+  if (!opnameId) return;
+  var body = {
+    opname_id: opnameId,
+    ts: Date.now(),
+    type: type,
+    titel: titel || '',
+    tekst: tekst || '',
+  };
+  if (currentPos) { body.lat = currentPos.lat; body.lon = currentPos.lon; }
+  try { API.post('aok_events', body).catch(function(){}); } catch(e) {}
 }
 
 // ─── SPELER PIJL-MARKER ───────────────────────────────
@@ -560,6 +640,7 @@ async function triggerOffRoute(lat, lon) {
     }
   }, 5000);
   SignalBus.send('van_route_af', { lat: lat, lon: lon, timestamp: Date.now() });
+  logMoment('van_route_af', 'Van route af', '');
   await berekenTerugkeerRoute(lat, lon);
   // Herbereken elke seconde — maar alleen als positie minstens 10m is verschoven
   if (herbereken_timer) clearInterval(herbereken_timer);
@@ -635,6 +716,7 @@ function clearOffRoute() {
   navBanner.classList.remove('offroute-modus');
   navBanner.classList.remove('actief');
   SignalBus.send('terug_op_route', { timestamp: Date.now() });
+  logMoment('terug_op_route', 'Terug op route', '');
 }
 
 function closestRoutePoint(lat, lon, coords) {
@@ -1119,6 +1201,7 @@ function showOpdracht(o) {
   if (o.audio_id) playAudioById(o.audio_id);
   document.getElementById('opdracht-overlay').classList.remove('hidden');
   SignalBus.send('opdracht_gezien', { id: o.id, timestamp: Date.now() });
+  logMoment('opdracht', o.titel || 'Opdracht', o.tekst || '');
 
   if (!ontvangen.find(function(x) { return x.id === o.id; })) {
     ontvangen.push({ id: o.id, titel: o.titel, tekst: o.tekst, status: 'ontvangen', _data: o });
@@ -1153,6 +1236,7 @@ async function voltooiOpdracht(o, succes) {
   // Patch database
   try { await API.patch('aok_opdrachten', o.id, { status: succes ? 'voltooid' : 'gefaald' }); } catch(e){}
   SignalBus.send(succes ? 'opdracht_voltooid' : 'opdracht_gefaald', { id: o.id, timestamp: Date.now() });
+  logMoment(succes ? 'opdracht_voltooid' : 'opdracht_gefaald', o.titel || 'Opdracht', succes ? 'Voltooid' : 'Gefaald');
 
   // Toon resultaat overlay
   toonResultaat(o, succes);
@@ -1265,7 +1349,11 @@ function bindSignals() {
     document.getElementById('bericht-tekst').textContent = p.tekst || '';
     document.getElementById('bericht-overlay').classList.remove('hidden');
     if (p.audio_url) playAudioUrl(p.audio_url);
+    logMoment('bericht', 'Bericht van regie', p.tekst || '');
   });
+  // Opname starten/stoppen vanuit de regie
+  SignalBus.on('opname_start', function(p) { if (p && p.id) startOpname(p.id); });
+  SignalBus.on('opname_stop',  function() { stopOpname(); });
   SignalBus.on('route_bijgewerkt', function(p) {
     console.log('[Route] route_bijgewerkt signaal ontvangen', p);
     // Reset volledig zodat loadActiveRoute de nieuwe route oppikt
@@ -1306,6 +1394,12 @@ async function syncLoop() {
   try { await syncOpdrachten(); } catch(e){}
   // Controleer ook of de actieve route gewijzigd is (fallback naast route_bijgewerkt signaal)
   try { await checkRouteWijziging(); } catch(e){}
+  // Elke 10 s controleren of de opname nog loopt (vangt een gemist stop-signaal op)
+  opnameCheckTeller++;
+  if (opnameCheckTeller >= 5) {
+    opnameCheckTeller = 0;
+    try { await haalOpnameStatus(); } catch(e){}
+  }
 }
 
 // Polt de actieve route zonder de volledige laadlogica opnieuw te doen.

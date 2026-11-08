@@ -169,6 +169,63 @@ BEGIN
 END $$;
 
 -- ============================================================
+--  RONDE 4 — OPNAMES (rit vastleggen voor terugspelen + animatie)
+--  Veilig om opnieuw te draaien: bestaande tabellen blijven staan,
+--  alleen policies worden opnieuw aangemaakt.
+--  Plak dit blok APART in de SQL Editor als je database al bestaat.
+-- ============================================================
+
+-- Opname / sessie (één per rit die je in de regie start)
+CREATE TABLE IF NOT EXISTS aok_opnames (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  naam       text,
+  gestart    timestamptz DEFAULT now(),
+  gestopt    timestamptz,
+  bron       text DEFAULT 'regie',
+  created_at timestamptz DEFAULT now()
+);
+
+-- Trackpunten: één rij per ~2 seconde (alleen bij verplaatsing)
+CREATE TABLE IF NOT EXISTS aok_track (
+  id         bigserial PRIMARY KEY,
+  opname_id  uuid REFERENCES aok_opnames(id) ON DELETE CASCADE,
+  ts         bigint,               -- Unix timestamp in ms (klok van de speler)
+  lat        double precision,
+  lon        double precision,
+  speed      double precision DEFAULT 0,
+  heading    double precision DEFAULT 0,
+  accuracy   double precision DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS aok_track_opname_ts_idx ON aok_track (opname_id, ts);
+
+-- Momenten op de tijdlijn: opdracht getoond/voltooid/gefaald, bericht, off-route
+CREATE TABLE IF NOT EXISTS aok_events (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  opname_id  uuid REFERENCES aok_opnames(id) ON DELETE CASCADE,
+  ts         bigint,
+  type       text,
+  titel      text,
+  tekst      text,
+  payload    text,
+  lat        double precision,
+  lon        double precision,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS aok_events_opname_ts_idx ON aok_events (opname_id, ts);
+
+ALTER TABLE aok_opnames ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aok_track   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aok_events  ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon_all" ON aok_opnames;
+DROP POLICY IF EXISTS "anon_all" ON aok_track;
+DROP POLICY IF EXISTS "anon_all" ON aok_events;
+CREATE POLICY "anon_all" ON aok_opnames FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all" ON aok_track   FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all" ON aok_events  FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- ============================================================
 --  Opruimen van oude signalen (optioneel, handmatig uitvoeren)
 --  Verwijder signalen ouder dan 1 dag om de tabel klein te houden
 -- ============================================================
