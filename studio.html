@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ankie op Kamp – Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.css">
+<link rel="stylesheet" href="/css/studio.css">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<script src="/js/sync.js"></script>
+</head>
+<body>
+
+<!-- ── PIN ── -->
+<div id="pin-screen">
+  <div class="pin-box">
+    <div class="logo">🎬</div>
+    <h1>Studio</h1>
+    <p>Opnames terugkijken en animaties maken</p>
+    <input type="password" id="pin-invoer" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+    <button id="btn-pin-ok">Openen</button>
+    <p id="pin-fout" class="pin-fout" style="display:none">Verkeerde pincode</p>
+  </div>
+</div>
+
+<!-- ── STUDIO ── -->
+<div id="studio" style="display:none">
+
+  <header id="studio-top">
+    <div class="brand">🎬 Studio</div>
+    <select id="opname-select"><option value="">— kies een opname —</option></select>
+    <button id="btn-herlaad" title="Opnames verversen">↻</button>
+    <div id="opname-info">—</div>
+    <div class="spacer"></div>
+    <button id="btn-project-opslaan" title="Project als bestand bewaren">💾 Project</button>
+    <button id="btn-project-laden" title="Eerder opgeslagen project openen">📂 Openen</button>
+    <input type="file" id="file-project" accept="application/json,.json" style="display:none">
+  </header>
+
+  <div id="studio-main">
+    <div id="studio-map">
+      <div id="branding-preview">
+        <div class="bp-klok" id="bp-klok" style="display:none"></div>
+        <div class="bp-titel" id="bp-titel" style="display:none"></div>
+        <img class="bp-logo" id="bp-logo" style="display:none" alt="">
+      </div>
+    </div>
+
+    <aside id="studio-paneel">
+      <nav class="paneel-tabs">
+        <button data-paneel="camera" class="active">Camera</button>
+        <button data-paneel="tijd">Tijd</button>
+        <button data-paneel="holo">Hologram</button>
+        <button data-paneel="beeld">Beeld</button>
+        <button data-paneel="export">Export</button>
+      </nav>
+      <div class="paneel-body">
+
+        <!-- CAMERA -->
+        <section id="paneel-camera" class="actief">
+          <div class="blok">
+            <h4>Camera-keyframe toevoegen</h4>
+            <p class="hint">Zet de kaart op de stand die je wilt (sleep, zoom, houd rechtermuisknop + sleep om te draaien/kantelen) en klik dan op toevoegen.</p>
+            <div class="rij" style="margin-top:0.5rem">
+              <label>Soort</label>
+              <select id="cam-soort">
+                <option value="volg">Volg de spelers (pin blijft in beeld)</option>
+                <option value="vast">Vast camerapunt</option>
+              </select>
+            </div>
+            <div class="knoppenrij">
+              <button class="knop vast" id="btn-cam-keyframe">＋ Keyframe op deze tijd</button>
+            </div>
+          </div>
+          <div class="blok">
+            <h4>Keyframes</h4>
+            <div class="lijst" id="lijst-camera"><p class="hint">Nog geen keyframes — de camera volgt de spelers automatisch.</p></div>
+          </div>
+        </section>
+
+        <!-- TIJD -->
+        <section id="paneel-tijd">
+          <div class="blok">
+            <h4>Snelheid op dit moment</h4>
+            <p class="hint">Zet de cursor op een tijdstip en kies hoe snel de tijd daarna moet lopen. 0,25× is slow motion, 8× spoelt vooruit.</p>
+            <div class="rij" style="margin-top:0.5rem">
+              <label>Tempo</label>
+              <select id="tijd-tempo">
+                <option value="0.25">0,25× — slow motion</option>
+                <option value="0.5">0,5× — langzaam</option>
+                <option value="1" selected>1× — normaal</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+                <option value="8">8×</option>
+                <option value="16">16×</option>
+                <option value="30">30×</option>
+                <option value="60">60×</option>
+              </select>
+            </div>
+            <div class="knoppenrij">
+              <button class="knop vast" id="btn-tijd-keyframe">＋ Tempo hier</button>
+            </div>
+          </div>
+          <div class="blok">
+            <h4>Tempo-wissels</h4>
+            <div class="lijst" id="lijst-tijd"><p class="hint">Nog geen tempo-wissels — de hele rit speelt op 1×.</p></div>
+            <div class="knoppenrij" style="margin-top:0.5rem">
+              <button class="knop rood" id="btn-tijd-wissen">Alles wissen</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- HOLOGRAM -->
+        <section id="paneel-holo">
+          <div class="blok">
+            <h4>Hologram (PNG)</h4>
+            <p class="hint">Laad een PNG met transparante achtergrond. Hij komt op het midden van de kaart te staan en beweegt mee in 3D. Klik daarna op de kaart om hem te verplaatsen.</p>
+            <div class="knoppenrij" style="margin-top:0.5rem">
+              <button class="knop vast" id="btn-holo-toevoegen">＋ PNG laden</button>
+            </div>
+            <input type="file" id="file-holo" accept="image/png,image/*" style="display:none">
+            <div class="lijst" id="lijst-holo" style="margin-top:0.5rem"></div>
+          </div>
+          <div class="blok" id="blok-holo-instellingen" style="display:none">
+            <h4>Geselecteerd hologram</h4>
+            <div class="rij"><label>Grootte</label><input type="range" id="holo-grootte" min="0.02" max="1.5" step="0.01" value="0.3"><span class="waarde" id="holo-grootte-w"></span></div>
+            <div class="rij"><label>Draaien</label><input type="range" id="holo-draaien" min="-180" max="180" step="1" value="0"><span class="waarde" id="holo-draaien-w"></span></div>
+            <div class="rij"><label>Doorzicht</label><input type="range" id="holo-opacity" min="0.05" max="1" step="0.05" value="1"><span class="waarde" id="holo-opacity-w"></span></div>
+            <div class="knoppenrij">
+              <button class="knop" id="btn-holo-naar-midden">Naar kaartmidden</button>
+              <button class="knop rood" id="btn-holo-verwijderen">Verwijderen</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- BEELD -->
+        <section id="paneel-beeld">
+          <div class="blok">
+            <h4>Titel in beeld</h4>
+            <div class="rij"><label>Titel</label><input type="text" id="beeld-titel" placeholder="bijv. Aflevering 3 — Dag 1"></div>
+            <div class="rij"><label>Regel 2</label><input type="text" id="beeld-subtitel" placeholder="optioneel"></div>
+          </div>
+          <div class="blok">
+            <h4>Klok en datum</h4>
+            <div class="rij">
+              <label>In beeld</label>
+              <select id="beeld-klok">
+                <option value="geen">— niets —</option>
+                <option value="tijd">Alleen tijd (14:32)</option>
+                <option value="datumtijd">Datum + tijd (za 8 nov 14:32)</option>
+              </select>
+            </div>
+            <p class="hint">De klok loopt mee met de tijdlijn en komt linksboven in beeld.</p>
+          </div>
+          <div class="blok">
+            <h4>Logo / PNG in beeld</h4>
+            <div class="knoppenrij">
+              <button class="knop" id="btn-logo-laden">PNG laden</button>
+              <button class="knop rood" id="btn-logo-weg">Weg</button>
+            </div>
+            <input type="file" id="file-logo" accept="image/png,image/*" style="display:none">
+            <p class="hint">Komt rechtsonder in beeld, niet meedraaiend met de kaart.</p>
+          </div>
+          <div class="blok">
+            <h4>Kaart</h4>
+            <div class="rij">
+              <label>Terrein</label>
+              <label style="min-width:auto;display:flex;align-items:center;gap:0.35rem;font-size:0.74rem;color:#cbd5e1">
+                <input type="checkbox" id="kaart-terrein"> 3D-hoogte aan
+              </label>
+            </div>
+            <div class="knoppenrij">
+              <button class="knop" id="btn-pas-in">Pas baan in beeld</button>
+              <button class="knop" id="btn-3d">3D-stand (schuin)</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- EXPORT -->
+        <section id="paneel-export">
+          <div class="blok">
+            <h4>Video exporteren</h4>
+            <div class="rij"><label>Resolutie</label>
+              <select id="export-resolutie">
+                <option value="1920x1080">1920 × 1080</option>
+                <option value="2560x1440">2560 × 1440</option>
+                <option value="3840x2160">3840 × 2160</option>
+                <option value="1280x720">1280 × 720</option>
+              </select>
+            </div>
+            <div class="rij"><label>Fps</label>
+              <select id="export-fps"><option value="30">30</option><option value="60">60</option></select>
+            </div>
+            <div class="rij"><label>Bitrate</label>
+              <select id="export-bitrate">
+                <option value="0.08">Normaal</option>
+                <option value="0.14" selected>Hoog</option>
+                <option value="0.22">Zeer hoog</option>
+              </select>
+            </div>
+            <div class="knoppenrij">
+              <button class="knop groen" id="btn-export">🎬 Exporteer WebM</button>
+            </div>
+            <p class="hint">De opname gebeurt in reële tijd: een animatie van 2 minuten duurt ook 2 minuten. Laat dit venster openstaan.</p>
+          </div>
+          <div class="blok">
+            <h4>Project</h4>
+            <div class="knoppenrij">
+              <button class="knop" id="btn-project-json">⬇ Project als JSON</button>
+            </div>
+            <p class="hint">Bevat camera-keyframes, tempo-wissels, hologrammen en titel. Bewaart ook automatisch in deze browser per opname.</p>
+          </div>
+        </section>
+
+      </div>
+    </aside>
+  </div>
+
+  <footer id="studio-tijdlijn">
+    <div class="tl-controls">
+      <button id="btn-play" title="Afspelen (spatiebalk)">▶</button>
+      <div id="tl-klok">--:--:--</div>
+      <div id="tl-datum">—</div>
+      <div id="tl-positie">—</div>
+      <div id="tl-duur">—</div>
+    </div>
+    <div id="tl-body">
+      <div id="tl-ruler"></div>
+      <div class="tl-rij" id="tl-rij-momenten"><span class="tl-rij-label">momenten</span></div>
+      <div class="tl-rij" id="tl-rij-tijd"><span class="tl-rij-label">tempo</span></div>
+      <div class="tl-rij" id="tl-rij-camera"><span class="tl-rij-label">camera</span></div>
+      <div id="tl-playhead" style="left:0"></div>
+    </div>
+  </footer>
+</div>
+
+<div id="studio-toast"></div>
+<div id="export-overlay">
+  <div class="groot" id="export-tekst">Bezig…</div>
+  <div id="export-balk"><span></span></div>
+  <div class="klein">Laat dit venster openstaan.</div>
+</div>
+
+<script>
+'use strict';
+
+/* =====================================================
+   STUDIO — opnames terugkijken, camera animeren, exporteren
+   ===================================================== */
+
+var map = null;
+var opname = null;              // { id, naam, gestart, gestopt }
+var punten = [];                // [{ ts, lat, lon, speed, heading }]
+var momenten = [];              // [{ ts, type, titel, lat, lon }]
+var beginTs = 0, eindTs = 0;
+var cursorTs = 0;
+var speelt = false;
+var rafId = null, laatsteFrameTijd = 0;
+var exportModus = false;
+var compCanvas = null, compCtx = null;
+var recorder = null, recorderTrack = null, recorderChunks = [];
+var geselecteerdeHolo = null;
+var logoImg = null;
+var holoAfbeeldingen = {};      // id -> true zodra de afbeelding in de kaart staat
+
+var MOMENT_KLEUREN = {
+  opdracht: '#fbbf24', opdracht_voltooid: '#22c55e', opdracht_gefaald: '#ef4444',
+  bericht: '#60a5fa', van_route_af: '#f97316', terug_op_route: '#14b8a6',
+  opname_start: '#a855f7', opname_stop: '#a855f7',
+};
+
+/* ─── Project (keyframes, hologrammen, beeld) ───────────────────────── */
+function leegProject() {
+  return {
+    versie: 1,
+    opname_id: null,
+    camera: [],        // { id, t, volg, center:[lon,lat], zoom, bearing, pitch }
+    snelheid: [],      // { id, t, tempo }
+    holos: [],         // { id, lat, lon, png, size, rotate, opacity, hoogte, naam }
+    titel: { tekst: '', subtitel: '', klok: 'geen', logoPng: '' },
+  };
+}
+var project = leegProject();
+
+/* ─── Hulpfuncties ──────────────────────────────────────────────────── */
+function $(id) { return document.getElementById(id); }
+function uid() { return 'k' + Math.random().toString(36).slice(2, 9); }
+function wacht(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+function toast(tekst) {
+  var el = $('studio-toast');
+  el.textContent = tekst;
+  el.classList.add('zichtbaar');
+  clearTimeout(el._t);
+  el._t = setTimeout(function() { el.classList.remove('zichtbaar'); }, 2600);
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function klokKort(ts) {
+  var d = new Date(ts);
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+function klokVolledig(ts) {
+  var d = new Date(ts);
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+function datumKort(ts) {
+  return new Date(ts).toLocaleDateString('nl-NL', { weekday: 'short', day: '2-digit', month: 'short' });
+}
+function duurTekst(ms) {
+  var s = Math.max(0, Math.round(ms / 1000));
+  var u = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (u ? u + 'u ' : '') + m + 'm ' + pad2(sec) + 's';
+}
+function veiligeNaam(s) {
+  return String(s || 'opname').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'opname';
+}
+
+/* ─── PIN ───────────────────────────────────────────────────────────── */
+var DEFAULT_PIN = '1234';
+
+async function probeerPin() {
+  var invoer = $('pin-invoer').value.trim();
+  var pin = DEFAULT_PIN;
+  try {
+    await SettingsStore.load();
+    var dbPin = SettingsStore.get('pincode', null);
+    if (dbPin !== null && dbPin !== undefined && String(dbPin).trim() !== '') pin = String(dbPin).trim();
+  } catch(e) {}
+  if (invoer === pin || String(Number(invoer)) === String(Number(pin))) {
+    $('pin-screen').style.display = 'none';
+    $('studio').style.display = 'flex';
+    startStudio();
+  } else {
+    $('pin-fout').style.display = 'block';
+    $('pin-invoer').value = '';
+    setTimeout(function() { $('pin-fout').style.display = 'none'; }, 2000);
+  }
+}
+$('btn-pin-ok').addEventListener('click', probeerPin);
+$('pin-invoer').addEventListener('keydown', function(e) { if (e.key === 'Enter') probeerPin(); });
+
+/* ─── START ─────────────────────────────────────────────────────────── */
+async function startStudio() {
+  await SettingsStore.load().catch(function() {});
+  initMap();
+  bindUI();
+  laadOpnames();
+}
+
+function initMap() {
+  var stijl = SettingsStore.get('kaartstijl', '/kaart-stijl.json');
+  try {
+    map = new maplibregl.Map({
+      container: 'studio-map',
+      style: stijl,
+      center: [5.2913, 52.1326],
+      zoom: 7,
+      pitch: 0,
+      bearing: 0,
+      maxPitch: 85,
+      attributionControl: false,
+      preserveDrawingBuffer: true,
+    });
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+    map.on('load', function() {
+      map.addSource('st-track', { type: 'geojson', data: leegLijn() });
+      map.addLayer({ id: 'st-track-bg', type: 'line', source: 'st-track',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0b1a26', 'line-width': 10, 'line-opacity': 0.5 } });
+      map.addLayer({ id: 'st-track-line', type: 'line', source: 'st-track',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#1a6fb5', 'line-width': 5 } });
+
+      map.addSource('st-subject', { type: 'geojson', data: leegFC() });
+      map.addLayer({ id: 'st-subject-halo', type: 'circle', source: 'st-subject',
+        paint: { 'circle-radius': 18, 'circle-color': '#38bdf8', 'circle-opacity': 0.22 } });
+      map.addLayer({ id: 'st-subject-dot', type: 'circle', source: 'st-subject',
+        paint: { 'circle-radius': 8, 'circle-color': '#0ea5e9', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' } });
+
+      map.addSource('st-holo', { type: 'geojson', data: leegFC() });
+      map.addLayer({ id: 'st-holo-layer', type: 'symbol', source: 'st-holo',
+        layout: {
+          'icon-image': ['get', 'icon'],
+          'icon-size': ['get', 'size'],
+          'icon-rotate': ['get', 'rotate'],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'icon-anchor': 'bottom',
+          'icon-pitch-alignment': 'viewport',
+          'icon-rotation-alignment': 'viewport',
+        },
+        paint: { 'icon-opacity': ['get', 'opacity'] } });
+
+      map.on('render', renderTick);
+      tekenAlles();
+    });
+
+    map.on('click', function(e) {
+      if (geselecteerdeHolo) {
+        geselecteerdeHolo.lat = e.lngLat.lat;
+        geselecteerdeHolo.lon = e.lngLat.lng;
+        holoBronBijwerken();
+        bewaarProject();
+        toast('Hologram verplaatst');
+      }
+    });
+
+    window.addEventListener('resize', function() { if (map) map.resize(); });
+  } catch(e) {
+    console.error('Kaart fout:', e);
+    toast('Kaart kon niet starten: ' + e.message);
+  }
+}
+
+function leegLijn() { return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }; }
+function leegFC() { return { type: 'FeatureCollection', features: [] }; }
+
+/* ─── OPNAMES LADEN ─────────────────────────────────────────────────── */
+async function laadOpnames() {
+  try {
+    var r = await API.get('aok_opnames', 'order=gestart.desc&limit=50');
+    var lijst = r.data || [];
+    var sel = $('opname-select');
+    sel.innerHTML = '<option value="">— kies een opname —</option>' + lijst.map(function(o) {
+      return '<option value="' + o.id + '">' + escHtml(o.naam || 'Opname') + ' · ' + datumKort(new Date(o.gestart).getTime()) + '</option>';
+    }).join('');
+    if (!lijst.length) toast('Geen opnames gevonden — start er een in de regie');
+  } catch(e) {
+    toast('Opnames laden mislukt (bestaat de tabel al?)');
+  }
+}
+
+async function haalAlleRijen(tabel, opnameId) {
+  var alles = [], offset = 0, pagina = 1000;
+  while (true) {
+    var r = await API.get(tabel, 'opname_id=eq.' + opnameId + '&order=ts.asc&limit=' + pagina + '&offset=' + offset);
+    var rows = r.data || [];
+    alles = alles.concat(rows);
+    if (rows.length < pagina) break;
+    offset += pagina;
+    if (offset > 200000) break;
+  }
+  return alles;
+}
+
+async function openOpname(id) {
+  if (!id) { opname = null; punten = []; momenten = []; tekenAlles(); return; }
+  toast('Opname laden…');
+  try {
+    var rows = await haalAlleRijen('aok_track', id);
+    punten = rows.map(function(p) {
+      return { ts: Number(p.ts), lat: Number(p.lat), lon: Number(p.lon), speed: Number(p.speed) || 0, heading: Number(p.heading) || 0 };
+    }).filter(function(p) { return isFinite(p.ts) && isFinite(p.lat) && isFinite(p.lon); })
+      .sort(function(a, b) { return a.ts - b.ts; });
+
+    var ev = await haalAlleRijen('aok_events', id);
+    momenten = ev.map(function(m) {
+      return { ts: Number(m.ts), type: m.type, titel: m.titel, lat: Number(m.lat) || null, lon: Number(m.lon) || null };
+    }).filter(function(m) { return isFinite(m.ts); }).sort(function(a, b) { return a.ts - b.ts; });
+
+    var info = (await API.get('aok_opnames', 'id=eq.' + id + '&limit=1')).data || [];
+    opname = info[0] || { id: id, naam: 'Opname' };
+  } catch(e) {
+    toast('Laden mislukt: ' + e.message.substring(0, 90));
+    return;
+  }
+
+  if (!punten.length) { toast('Deze opname heeft nog geen punten'); tekenAlles(); return; }
+
+  beginTs = punten[0].ts;
+  eindTs = punten[punten.length - 1].ts;
+  cursorTs = beginTs;
+  laadProject();
+  tekenTrack();
+  tekenAlles();
+  pasBaanInBeeld();
+  $('opname-info').textContent = (opname.naam || 'Opname') + ' · ' + datumKort(beginTs) + ' · ' + duurTekst(eindTs - beginTs) + ' · ' + punten.length + ' punten';
+  toast('✅ ' + punten.length + ' punten · ' + momenten.length + ' momenten');
+}
+
+function tekenTrack() {
+  if (!map || !map.getSource('st-track')) return;
+  var coords = punten.map(function(p) { return [p.lon, p.lat]; });
+  map.getSource('st-track').setData(coords.length > 1
+    ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+    : leegLijn());
+}
+
+function pasBaanInBeeld() {
+  if (!map || punten.length < 2) return;
+  try {
+    var coords = punten.map(function(p) { return [p.lon, p.lat]; });
+    var b = coords.reduce(function(acc, c) { return acc.extend(c); }, new maplibregl.LngLatBounds(coords[0], coords[0]));
+    map.fitBounds(b, { padding: { top: 60, bottom: 60, left: 60, right: 60 }, maxZoom: 15, duration: 600 });
+  } catch(e) {}
+}
+
+/* ─── PROJECT OPSLAG ────────────────────────────────────────────────── */
+function projectsleutel() { return 'aok_studio_' + (opname ? opname.id : 'leeg'); }
+
+function bewaarProject() {
+  if (!opname) return;
+  try {
+    project.opname_id = opname.id;
+    localStorage.setItem(projectsleutel(), JSON.stringify(project));
+  } catch(e) {
+    toast('Project te groot voor browseropslag — gebruik "Project als JSON"');
+  }
+}
+
+function laadProject() {
+  project = leegProject();
+  project.opname_id = opname ? opname.id : null;
+  try {
+    var ruw = localStorage.getItem(projectsleutel());
+    if (ruw) {
+      var p = JSON.parse(ruw);
+      project = Object.assign(leegProject(), p);
+      project.camera = (project.camera || []).sort(function(a, b) { return a.t - b.t; });
+      project.snelheid = (project.snelheid || []).sort(function(a, b) { return a.t - b.t; });
+      project.holos = project.holos || [];
+      project.titel = Object.assign({ tekst: '', subtitel: '', klok: 'geen', logoPng: '' }, project.titel || {});
+    }
+  } catch(e) { console.warn('Project laden mislukt:', e); }
+
+  $('beeld-titel').value = project.titel.tekst || '';
+  $('beeld-subtitel').value = project.titel.subtitel || '';
+  $('beeld-klok').value = project.titel.klok || 'geen';
+  zetLogo(project.titel.logoPng || '');
+  project.holos.forEach(function(h) { zorgVoorAfbeelding(h); });
+  holoBronOpmaken();
+  renderCameraLijst();
+  renderTijdLijst();
+  renderHoloLijst();
+  werkBrandingBij();
+}
+
+/* ─── TIJD EN POSITIE ───────────────────────────────────────────────── */
+function positieOp(ts) {
+  var n = punten.length;
+  if (!n) return null;
+  if (ts <= punten[0].ts) return punten[0];
+  if (ts >= punten[n - 1].ts) return punten[n - 1];
+  var lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    var mid = (lo + hi) >> 1;
+    if (punten[mid].ts <= ts) lo = mid; else hi = mid;
+  }
+  var a = punten[lo], b = punten[hi];
+  var f = (ts - a.ts) / Math.max(1, b.ts - a.ts);
+  return {
+    lat: a.lat + (b.lat - a.lat) * f,
+    lon: a.lon + (b.lon - a.lon) * f,
+    speed: a.speed + (b.speed - a.speed) * f,
+    heading: a.heading,
+  };
+}
+
+function tempoOp(ts) {
+  var kfs = project.snelheid;
+  var tempo = 1;
+  for (var i = 0; i < kfs.length; i++) if (kfs[i].t <= ts) tempo = kfs[i].tempo;
+  return tempo;
+}
+
+function cameraOp(ts) {
+  var kfs = project.camera;
+  var pos = positieOp(ts);
+  var subject = pos ? [pos.lon, pos.lat] : null;
+
+  if (!kfs.length) {
+    return { center: subject || [5.2913, 52.1326], zoom: 14, bearing: 0, pitch: 45 };
+  }
+  function kfCamera(k) {
+    return {
+      center: (k.volg && subject) ? subject : k.center,
+      zoom: k.zoom, bearing: k.bearing, pitch: k.pitch,
+    };
+  }
+  if (ts <= kfs[0].t) return kfCamera(kfs[0]);
+  if (ts >= kfs[kfs.length - 1].t) return kfCamera(kfs[kfs.length - 1]);
+
+  var i = 0;
+  while (i < kfs.length - 1 && kfs[i + 1].t <= ts) i++;
+  var a = kfs[i], b = kfs[i + 1];
+  var f = (ts - a.t) / Math.max(1, b.t - a.t);
+  var ca = (a.volg && subject) ? subject : a.center;
+  var cb = (b.volg && subject) ? subject : b.center;
+  var dBearing = ((b.bearing - a.bearing + 540) % 360) - 180;
+  return {
+    center: [ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f],
+    zoom: a.zoom + (b.zoom - a.zoom) * f,
+    bearing: a.bearing + dBearing * f,
+    pitch: a.pitch + (b.pitch - a.pitch) * f,
+  };
+}
+
+function updateScene() {
+  if (!map) return;
+  var pos = positieOp(cursorTs);
+  if (pos && map.getSource('st-subject')) {
+    map.getSource('st-subject').setData({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
+    });
+  }
+  var cam = cameraOp(cursorTs);
+  map.jumpTo({ center: cam.center, zoom: cam.zoom, bearing: cam.bearing, pitch: cam.pitch });
+  werkTijdlijnUI();
+}
+
+/* ─── AFSPELEN ──────────────────────────────────────────────────────── */
+function zetSpelen(aan) {
+  if (aan && !punten.length) return;
+  speelt = aan;
+  $('btn-play').textContent = aan ? '❚❚' : '▶';
+  if (aan) {
+    if (cursorTs >= eindTs) cursorTs = beginTs;
+    laatsteFrameTijd = performance.now();
+    rafId = requestAnimationFrame(frameLoop);
+  } else if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+}
+
+function frameLoop(nu) {
+  if (!speelt) return;
+  var dt = Math.min(500, nu - laatsteFrameTijd);
+  laatsteFrameTijd = nu;
+  var tempo = tempoOp(cursorTs);
+  if (!(tempo > 0)) tempo = 1;      // oude projecten met 0× mogen nooit vastlopen
+  cursorTs += dt * tempo;
+  if (cursorTs >= eindTs) {
+    cursorTs = eindTs;
+    updateScene();
+    zetSpelen(false);      // altijd stoppen, ook tijdens de export
+    return;
+  }
+  updateScene();
+  rafId = requestAnimationFrame(frameLoop);
+}
+
+/* ─── TIJDLIJN ──────────────────────────────────────────────────────── */
+function pctVan(ts) {
+  var duur = Math.max(1, eindTs - beginTs);
+  return Math.max(0, Math.min(100, ((ts - beginTs) / duur) * 100));
+}
+
+function tekenTijdlijn() {
+  var ruler = $('tl-ruler');
+  if (!punten.length) { ruler.innerHTML = ''; return; }
+
+  var ticks = 8, html = '';
+  for (var i = 0; i <= ticks; i++) {
+    var ts = beginTs + (eindTs - beginTs) * (i / ticks);
+    var pct = (i / ticks) * 100;
+    var label = klokKort(ts);
+    if (i === 0) label += ' · ' + datumKort(ts);
+    html += '<span class="tl-tick" style="left:' + pct + '%">' + label + '</span>';
+  }
+  ruler.innerHTML = html;
+
+  function markeer(rijId, items, soort, tijdFn, tekstFn, kleurFn) {
+    var rij = $(rijId);
+    rij.querySelectorAll('.tl-mark').forEach(function(el) { el.remove(); });
+    items.forEach(function(item) {
+      var t = tijdFn(item);
+      var el = document.createElement('span');
+      el.className = 'tl-mark ' + soort + (item.volg ? ' volg' : '');
+      el.style.left = pctVan(t) + '%';
+      if (kleurFn) { var k = kleurFn(item); if (k) el.style.background = k; }
+      el.title = tekstFn(item);
+      el.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        cursorTs = t;
+        updateScene();
+      });
+      rij.appendChild(el);
+    });
+  }
+
+  markeer('tl-rij-momenten', momenten, 'moment',
+    function(m) { return m.ts; },
+    function(m) { return (m.titel || m.type) + ' — ' + klokVolledig(m.ts); },
+    function(m) { return MOMENT_KLEUREN[m.type] || '#94a3b8'; });
+
+  markeer('tl-rij-camera', project.camera, 'camera',
+    function(k) { return k.t; },
+    function(k) { return klokVolledig(k.t) + ' · ' + (k.volg ? 'volgt spelers' : 'vast punt') + ' · zoom ' + k.zoom.toFixed(1); });
+
+  markeer('tl-rij-tijd', project.snelheid, 'tijd',
+    function(k) { return k.t; },
+    function(k) { return klokVolledig(k.t) + ' · ' + k.tempo + '×'; });
+}
+
+function werkTijdlijnUI() {
+  if (!punten.length) {
+    $('tl-klok').textContent = '--:--:--';
+    $('tl-datum').textContent = '—';
+    $('tl-positie').textContent = '—';
+    $('tl-duur').textContent = '—';
+    return;
+  }
+  $('tl-klok').textContent = klokVolledig(cursorTs);
+  $('tl-datum').textContent = datumKort(cursorTs);
+  var pos = positieOp(cursorTs);
+  if (pos) {
+    var kmh = Math.round((pos.speed || 0) * 3.6);
+    $('tl-positie').textContent = pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5) + ' · ' + kmh + ' km/h';
+  }
+  var tempo = tempoOp(cursorTs);
+  var rest = (tempo > 0) ? (eindTs - cursorTs) / tempo : 0;
+  $('tl-duur').textContent = 'nog ' + duurTekst(rest) + ' · ' + tempo + '×';
+  $('tl-playhead').style.left = 'calc(0.8rem + (100% - 1.6rem) * ' + (pctVan(cursorTs) / 100) + ')';
+  werkBrandingBij();
+}
+
+function zetCursorVanMuis(ev) {
+  if (!punten.length) return;
+  var rect = $('tl-ruler').getBoundingClientRect();
+  var f = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width)));
+  cursorTs = beginTs + (eindTs - beginTs) * f;
+  updateScene();
+}
+
+/* ─── CAMERA-KEYFRAMES ──────────────────────────────────────────────── */
+function voegCameraKeyframe() {
+  if (!map || !punten.length) { toast('Kies eerst een opname'); return; }
+  var volg = $('cam-soort').value === 'volg';
+  var c = map.getCenter();
+  project.camera.push({
+    id: uid(), t: cursorTs, volg: volg,
+    center: [c.lng, c.lat],
+    zoom: Number(map.getZoom().toFixed(2)),
+    bearing: Number(map.getBearing().toFixed(1)),
+    pitch: Number(map.getPitch().toFixed(1)),
+  });
+  project.camera.sort(function(a, b) { return a.t - b.t; });
+  bewaarProject();
+  renderCameraLijst();
+  tekenTijdlijn();
+  toast('🎥 Camera-keyframe op ' + klokVolledig(cursorTs) + (volg ? ' (volgt spelers)' : ' (vast punt)'));
+}
+
+function renderCameraLijst() {
+  var el = $('lijst-camera');
+  if (!project.camera.length) {
+    el.innerHTML = '<p class="hint">Nog geen keyframes — de camera volgt de spelers automatisch.</p>';
+    return;
+  }
+  el.innerHTML = project.camera.map(function(k, i) {
+    return '<div class="item" data-cam="' + i + '">' +
+      '<span class="tijd">' + klokVolledig(k.t) + '</span>' +
+      '<span class="chip">' + (k.volg ? 'volgt' : 'vast') + '</span>' +
+      '<span class="info">zoom ' + k.zoom.toFixed(1) + ' · ' + Math.round(k.pitch) + '° schuin' +
+        (k.bearing ? ' · ' + Math.round(k.bearing) + '° gedraaid' : '') + '</span>' +
+      '<button data-del="' + i + '" title="Verwijderen">✕</button>' +
+      '</div>';
+  }).join('');
+
+  el.querySelectorAll('[data-cam]').forEach(function(item) {
+    item.addEventListener('click', function(ev) {
+      if (ev.target.dataset.del !== undefined) return;
+      cursorTs = project.camera[Number(item.dataset.cam)].t;
+      updateScene();
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(function(b) {
+    b.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      project.camera.splice(Number(b.dataset.del), 1);
+      bewaarProject(); renderCameraLijst(); tekenTijdlijn();
+    });
+  });
+}
+
+/* ─── TEMPO-KEYFRAMES ───────────────────────────────────────────────── */
+function voegTijdKeyframe() {
+  if (!punten.length) { toast('Kies eerst een opname'); return; }
+  var tempo = parseFloat($('tijd-tempo').value);
+  // Vervang een bestaande wissel op (bijna) hetzelfde moment
+  project.snelheid = project.snelheid.filter(function(k) { return Math.abs(k.t - cursorTs) > 500; });
+  project.snelheid.push({ id: uid(), t: cursorTs, tempo: tempo });
+  project.snelheid.sort(function(a, b) { return a.t - b.t; });
+  bewaarProject();
+  renderTijdLijst();
+  tekenTijdlijn();
+  toast('⏱ ' + tempo + '× vanaf ' + klokVolledig(cursorTs));
+}
+
+function renderTijdLijst() {
+  var el = $('lijst-tijd');
+  if (!project.snelheid.length) {
+    el.innerHTML = '<p class="hint">Nog geen tempo-wissels — de hele rit speelt op 1×.</p>';
+    return;
+  }
+  el.innerHTML = project.snelheid.map(function(k, i) {
+    return '<div class="item" data-tijd="' + i + '">' +
+      '<span class="tijd">' + klokVolledig(k.t) + '</span>' +
+      '<span class="chip">' + k.tempo + '×</span>' +
+      '<span class="info">' + (k.tempo === 0 ? 'stilstand' : k.tempo === 1 ? 'normaal' : 'versneld') + '</span>' +
+      '<button data-del="' + i + '" title="Verwijderen">✕</button>' +
+      '</div>';
+  }).join('');
+
+  el.querySelectorAll('[data-tijd]').forEach(function(item) {
+    item.addEventListener('click', function(ev) {
+      if (ev.target.dataset.del !== undefined) return;
+      cursorTs = project.snelheid[Number(item.dataset.tijd)].t;
+      updateScene();
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(function(b) {
+    b.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      project.snelheid.splice(Number(b.dataset.del), 1);
+      bewaarProject(); renderTijdLijst(); tekenTijdlijn();
+    });
+  });
+}
+
+/* ─── HOLOGRAMMEN ───────────────────────────────────────────────────── */
+function laadAfbeelding(src) {
+  return new Promise(function(res) {
+    var img = new Image();
+    img.onload = function() { res(img); };
+    img.onerror = function() { res(null); };
+    img.src = src;
+  });
+}
+
+async function zorgVoorAfbeelding(h) {
+  if (!h.png || holoAfbeeldingen[h.id] || !map) return;
+  var img = await laadAfbeelding(h.png);
+  if (!img) return;
+
+  function probeer() {
+    try {
+      if (!map.hasImage('holo-' + h.id)) map.addImage('holo-' + h.id, img);
+      holoAfbeeldingen[h.id] = true;
+      holoBronOpmaken();          // pas nu kan de laag de afbeelding tekenen
+      return true;
+    } catch(e) { return false; }
+  }
+
+  if (probeer()) return;
+  // Stijl nog niet klaar: één keer opnieuw proberen zodra de kaart stil is
+  await new Promise(function(res) {
+    var klaar = false;
+    function verder() { if (!klaar) { klaar = true; res(); } }
+    map.once('idle', verder);
+    setTimeout(verder, 3000);
+  });
+  probeer();
+}
+
+function holoBronOpmaken() {
+  if (!map || !map.getSource('st-holo')) return;
+  var features = project.holos.map(function(h) {
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+      properties: {
+        icon: 'holo-' + h.id,
+        size: h.size,
+        rotate: h.rotate,
+        opacity: h.opacity,
+      },
+    };
+  });
+  map.getSource('st-holo').setData({ type: 'FeatureCollection', features: features });
+}
+
+function holoBronBijwerken() { holoBronOpmaken(); }
+
+async function voegHoloToe(png, naam) {
+  if (!map) return;
+  var c = map.getCenter();
+  var h = { id: uid(), lat: c.lat, lon: c.lng, png: png, size: 0.4, rotate: 0, opacity: 1, naam: naam || 'hologram' };
+  project.holos.push(h);
+  await zorgVoorAfbeelding(h);
+  holoBronOpmaken();
+  bewaarProject();
+  renderHoloLijst();
+  selecteerHolo(h.id);
+  toast('🧊 Hologram geplaatst — klik op de kaart om te verplaatsen');
+}
+
+function renderHoloLijst() {
+  var el = $('lijst-holo');
+  if (!project.holos.length) { el.innerHTML = '<p class="hint">Nog geen hologrammen.</p>'; return; }
+  el.innerHTML = project.holos.map(function(h, i) {
+    return '<div class="item' + (geselecteerdeHolo && geselecteerdeHolo.id === h.id ? ' geselecteerd' : '') + '" data-holo="' + i + '">' +
+      '<span class="tijd">' + (h.naam || 'holo') + '</span>' +
+      '<span class="info">' + h.lat.toFixed(4) + ', ' + h.lon.toFixed(4) + '</span>' +
+      '<button data-del="' + i + '" title="Verwijderen">✕</button>' +
+      '</div>';
+  }).join('');
+
+  el.querySelectorAll('[data-holo]').forEach(function(item) {
+    item.addEventListener('click', function(ev) {
+      if (ev.target.dataset.del !== undefined) return;
+      selecteerHolo(project.holos[Number(item.dataset.holo)].id);
+    });
+  });
+  el.querySelectorAll('[data-del]').forEach(function(b) {
+    b.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      verwijderHolo(Number(b.dataset.del));
+    });
+  });
+}
+
+function selecteerHolo(id) {
+  geselecteerdeHolo = project.holos.find(function(h) { return h.id === id; }) || null;
+  var blok = $('blok-holo-instellingen');
+  if (!geselecteerdeHolo) { blok.style.display = 'none'; renderHoloLijst(); return; }
+  blok.style.display = 'block';
+  $('holo-grootte').value = geselecteerdeHolo.size;
+  $('holo-draaien').value = geselecteerdeHolo.rotate;
+  $('holo-opacity').value = geselecteerdeHolo.opacity;
+  holoWaardenTonen();
+  renderHoloLijst();
+}
+
+function holoWaardenTonen() {
+  $('holo-grootte-w').textContent = Number($('holo-grootte').value).toFixed(2);
+  $('holo-draaien-w').textContent = $('holo-draaien').value + '°';
+  $('holo-opacity-w').textContent = Math.round(Number($('holo-opacity').value) * 100) + '%';
+}
+
+function verwijderHolo(idx) {
+  var h = project.holos[idx];
+  if (!h) return;
+  project.holos.splice(idx, 1);
+  if (geselecteerdeHolo && geselecteerdeHolo.id === h.id) selecteerHolo(null);
+  holoBronOpmaken();
+  bewaarProject();
+  renderHoloLijst();
+}
+
+/* ─── BEELD (branding) ──────────────────────────────────────────────── */
+function zetLogo(png) {
+  project.titel.logoPng = png || '';
+  if (png) {
+    logoImg = new Image();
+    logoImg.onload = function() { $('bp-logo').src = png; $('bp-logo').style.display = 'block'; };
+    logoImg.src = png;
+  } else {
+    logoImg = null;
+    $('bp-logo').style.display = 'none';
+    $('bp-logo').removeAttribute('src');
+  }
+}
+
+function werkBrandingBij() {
+  var titel = project.titel.tekst || '';
+  var sub = project.titel.subtitel || '';
+  var bpTitel = $('bp-titel');
+  if (titel || sub) {
+    bpTitel.style.display = 'block';
+    bpTitel.innerHTML = (titel ? '<div>' + escHtml(titel) + '</div>' : '') +
+                        (sub ? '<div style="font-size:0.62em;color:#fbbf24">' + escHtml(sub) + '</div>' : '');
+  } else {
+    bpTitel.style.display = 'none';
+  }
+
+  var bpKlok = $('bp-klok');
+  if (project.titel.klok && project.titel.klok !== 'geen' && punten.length) {
+    bpKlok.style.display = 'block';
+    bpKlok.textContent = project.titel.klok === 'datumtijd'
+      ? datumKort(cursorTs) + ' · ' + klokKort(cursorTs)
+      : klokKort(cursorTs);
+  } else {
+    bpKlok.style.display = 'none';
+  }
+}
+
+/* ─── RENDER-LUS VOOR EXPORT ────────────────────────────────────────── */
+var laatsteExportFrame = 0;
+function renderTick() {
+  if (!exportModus || !compCanvas) return;
+  tekenCompositie();
+  var fps = parseInt($('export-fps').value, 10) || 30;
+  var nu = performance.now();
+  if (nu - laatsteExportFrame < (1000 / fps) - 2) return;
+  laatsteExportFrame = nu;
+  if (recorderTrack && recorderTrack.requestFrame) recorderTrack.requestFrame();
+}
+
+function tekenCompositie() {
+  if (!compCtx || !map) return;
+  var W = compCanvas.width, H = compCanvas.height;
+  compCtx.clearRect(0, 0, W, H);
+  try { compCtx.drawImage(map.getCanvas(), 0, 0, W, H); } catch(e) { return; }
+
+  // datum/tijd linksboven
+  if (project.titel.klok && project.titel.klok !== 'geen' && punten.length) {
+    var tekst = project.titel.klok === 'datumtijd'
+      ? datumKort(cursorTs) + ' · ' + klokKort(cursorTs)
+      : klokKort(cursorTs);
+    compCtx.font = '900 ' + Math.round(H * 0.055) + 'px Nunito, sans-serif';
+    compCtx.fillStyle = '#fbbf24';
+    compCtx.shadowColor = 'rgba(0,0,0,0.9)';
+    compCtx.shadowBlur = H * 0.02;
+    compCtx.fillText(tekst, W * 0.04, H * 0.09);
+    compCtx.shadowBlur = 0;
+  }
+
+  // titel linksonder
+  var titel = project.titel.tekst || '';
+  var sub = project.titel.subtitel || '';
+  if (titel || sub) {
+    compCtx.shadowColor = 'rgba(0,0,0,0.9)';
+    compCtx.shadowBlur = H * 0.02;
+    compCtx.fillStyle = '#ffffff';
+    compCtx.font = '900 ' + Math.round(H * 0.05) + 'px Nunito, sans-serif';
+    var y = H * 0.88;
+    if (sub) {
+      compCtx.font = '900 ' + Math.round(H * 0.032) + 'px Nunito, sans-serif';
+      compCtx.fillStyle = '#fbbf24';
+      compCtx.fillText(sub, W * 0.04, y);
+      y -= H * 0.055;
+    }
+    if (titel) {
+      compCtx.font = '900 ' + Math.round(H * 0.05) + 'px Nunito, sans-serif';
+      compCtx.fillStyle = '#ffffff';
+      compCtx.fillText(titel, W * 0.04, y);
+    }
+    compCtx.shadowBlur = 0;
+  }
+
+  // logo rechtsonder
+  if (logoImg && logoImg.complete && logoImg.naturalWidth) {
+    var lh = H * 0.09;
+    var lw = lh * (logoImg.naturalWidth / logoImg.naturalHeight);
+    compCtx.drawImage(logoImg, W - lw - W * 0.03, H - lh - H * 0.06, lw, lh);
+  }
+}
+
+/* ─── EXPORT ────────────────────────────────────────────────────────── */
+async function exporteerVideo() {
+  if (exportModus) return;
+  if (!opname || !punten.length) { toast('Kies eerst een opname'); return; }
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    toast('Deze browser kan geen video opnemen — gebruik Chrome of Edge');
+    return;
+  }
+
+  var res = $('export-resolutie').value.split('x');
+  var W = parseInt(res[0], 10), H = parseInt(res[1], 10);
+  var fps = parseInt($('export-fps').value, 10) || 30;
+  var bitrateFactor = parseFloat($('export-bitrate').value) || 0.14;
+  var dpr = window.devicePixelRatio || 1;
+
+  zetSpelen(false);
+  exportModus = true;
+  cursorTs = beginTs;
+  $('export-overlay').classList.add('zichtbaar');
+  $('export-tekst').textContent = 'Video opnemen…';
+  $('export-balk').firstElementChild.style.width = '0%';
+
+  // Kaart tijdelijk op de exportmaat zetten
+  var kaartEl = $('studio-map');
+  kaartEl.style.position = 'absolute';
+  kaartEl.style.left = '0'; kaartEl.style.top = '0';
+  kaartEl.style.right = 'auto'; kaartEl.style.bottom = 'auto';
+  kaartEl.style.flex = 'none';
+  kaartEl.style.width = Math.round(W / dpr) + 'px';
+  kaartEl.style.height = Math.round(H / dpr) + 'px';
+  map.resize();
+  await wacht(450);
+
+  compCanvas = document.createElement('canvas');
+  compCanvas.width = W;
+  compCanvas.height = H;
+  compCtx = compCanvas.getContext('2d');
+
+  var stream = compCanvas.captureStream(0);
+  recorderTrack = stream.getVideoTracks()[0];
+  var mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+    .filter(function(m) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m); })[0] || '';
+
+  recorderChunks = [];
+  try {
+    recorder = new MediaRecorder(stream, mime
+      ? { mimeType: mime, videoBitsPerSecond: Math.round(W * H * fps * bitrateFactor) }
+      : { videoBitsPerSecond: Math.round(W * H * fps * bitrateFactor) });
+  } catch(e) {
+    herstelNaExport();
+    return;
+  }
+  recorder.ondataavailable = function(e) { if (e.data && e.data.size) recorderChunks.push(e.data); };
+  var gestopt = new Promise(function(r) { recorder.onstop = r; });
+
+  updateScene();
+  await wacht(150);
+  recorder.start(250);
+  laatsteExportFrame = 0;
+
+  zetSpelen(true);
+  var startMoment = performance.now();
+  var verwacht = Math.max(1, (eindTs - beginTs));   // ruwe schatting
+  var klok = setInterval(function() {
+    var verstreken = performance.now() - startMoment;
+    $('export-tekst').textContent = 'Video opnemen… ' + duurTekst(verstreken);
+    $('export-balk').firstElementChild.style.width =
+      Math.min(100, (pctVan(cursorTs))) + '%';
+  }, 300);
+
+  await new Promise(function(res) {
+    var laatsteCursor = cursorTs, laatsteVooruitgang = performance.now();
+    var wachtInterval = setInterval(function() {
+      if (Math.abs(cursorTs - laatsteCursor) > 1) {
+        laatsteCursor = cursorTs;
+        laatsteVooruitgang = performance.now();
+      }
+      if (!speelt) { clearInterval(wachtInterval); res(); }
+      else if (performance.now() - laatsteVooruitgang > 8000) {
+        clearInterval(wachtInterval);
+        zetSpelen(false);
+        toast('Export gestopt: de tijd liep vast');
+        res();
+      }
+    }, 150);
+  });
+  clearInterval(klok);
+  await wacht(400);
+  recorder.stop();
+  await gestopt;
+
+  var blob = new Blob(recorderChunks, { type: 'video/webm' });
+  herstelNaExport();
+
+  if (!blob.size) {
+    toast('Er is geen video opgenomen — probeer opnieuw');
+    return;
+  }
+  downloadBestand(blob, veiligeNaam(opname.naam) + '-animatie.webm', 'video/webm');
+  toast('🎬 Klaar: ' + (blob.size / 1048576).toFixed(1) + ' MB · ' + W + '×' + H);
+}
+
+function herstelNaExport() {
+  exportModus = false;
+  zetSpelen(false);
+  var kaartEl = $('studio-map');
+  kaartEl.removeAttribute('style');
+  compCanvas = null;
+  compCtx = null;
+  recorderTrack = null;
+  recorder = null;
+  if (map) map.resize();
+  $('export-overlay').classList.remove('zichtbaar');
+}
+
+function downloadBestand(inhoud, naam, mime) {
+  var blob = (inhoud instanceof Blob) ? inhoud : new Blob([inhoud], { type: mime || 'application/octet-stream' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = naam;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() {
+    if (a.parentNode) a.parentNode.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 1500);
+}
+
+/* ─── PROJECT BESTANDEN ─────────────────────────────────────────────── */
+function exporteerProjectJSON() {
+  if (!opname) { toast('Kies eerst een opname'); return; }
+  var data = {
+    versie: 'v0.30',
+    soort: 'aok-studio-project',
+    opname: { id: opname.id, naam: opname.naam, gestart: opname.gestart, gestopt: opname.gestopt },
+    tijdbasis: { start_ms: beginTs, eind_ms: eindTs },
+    project: project,
+  };
+  downloadBestand(JSON.stringify(data, null, 2), veiligeNaam(opname.naam) + '-studio.json', 'application/json');
+  toast('⬇ Project gedownload');
+}
+
+function importeerProjectJSON(bestand) {
+  var lezer = new FileReader();
+  lezer.onload = function() {
+    try {
+      var data = JSON.parse(lezer.result);
+      var p = data.project || data;
+      if (!p.camera && !p.holos) throw new Error('geen studio-project');
+      project = Object.assign(leegProject(), p);
+      project.camera = (project.camera || []).sort(function(a, b) { return a.t - b.t; });
+      project.snelheid = (project.snelheid || []).sort(function(a, b) { return a.t - b.t; });
+      project.holos = project.holos || [];
+      project.titel = Object.assign({ tekst: '', subtitel: '', klok: 'geen', logoPng: '' }, project.titel || {});
+      $('beeld-titel').value = project.titel.tekst || '';
+      $('beeld-subtitel').value = project.titel.subtitel || '';
+      $('beeld-klok').value = project.titel.klok || 'geen';
+      zetLogo(project.titel.logoPng || '');
+      project.holos.forEach(function(h) { zorgVoorAfbeelding(h); });
+      holoBronOpmaken();
+      renderCameraLijst(); renderTijdLijst(); renderHoloLijst(); tekenTijdlijn();
+      bewaarProject();
+      toast('📂 Project geladen');
+    } catch(e) { toast('Dit bestand is geen Studio-project'); }
+  };
+  lezer.readAsText(bestand);
+}
+
+/* ─── UI KOPPELEN ───────────────────────────────────────────────────── */
+function bindUI() {
+  // Opnames
+  $('opname-select').addEventListener('change', function() { openOpname(this.value); });
+  $('btn-herlaad').addEventListener('click', function() { laadOpnames(); toast('Lijst verversd'); });
+
+  // Panelen
+  document.querySelectorAll('.paneel-tabs button').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.paneel-tabs button').forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.paneel-body section').forEach(function(s) { s.classList.remove('actief'); });
+      btn.classList.add('active');
+      var sec = $('paneel-' + btn.dataset.paneel);
+      if (sec) sec.classList.add('actief');
+    });
+  });
+
+  // Afspelen
+  $('btn-play').addEventListener('click', function() { zetSpelen(!speelt); });
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.code === 'Space') { e.preventDefault(); zetSpelen(!speelt); }
+  });
+
+  // Tijdlijn
+  var sleepBezig = false;
+  $('tl-body').addEventListener('mousedown', function(ev) {
+    sleepBezig = true;
+    zetSpelen(false);
+    zetCursorVanMuis(ev);
+  });
+  window.addEventListener('mousemove', function(ev) { if (sleepBezig) zetCursorVanMuis(ev); });
+  window.addEventListener('mouseup', function() { sleepBezig = false; });
+
+  // Camera
+  $('btn-cam-keyframe').addEventListener('click', voegCameraKeyframe);
+
+  // Tempo
+  $('btn-tijd-keyframe').addEventListener('click', voegTijdKeyframe);
+  $('btn-tijd-wissen').addEventListener('click', function() {
+    if (!project.snelheid.length) return;
+    if (!confirm('Alle tempo-wissels wissen?')) return;
+    project.snelheid = [];
+    bewaarProject(); renderTijdLijst(); tekenTijdlijn();
+  });
+
+  // Hologrammen
+  $('btn-holo-toevoegen').addEventListener('click', function() { $('file-holo').click(); });
+  $('file-holo').addEventListener('change', function() {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var lezer = new FileReader();
+    lezer.onload = function() { voegHoloToe(lezer.result, f.name.replace(/\.[^.]+$/, '')); };
+    lezer.readAsDataURL(f);
+    this.value = '';
+  });
+  ['holo-grootte', 'holo-draaien', 'holo-opacity'].forEach(function(id) {
+    $(id).addEventListener('input', function() {
+      if (!geselecteerdeHolo) return;
+      if (id === 'holo-grootte') geselecteerdeHolo.size = Number(this.value);
+      if (id === 'holo-draaien') geselecteerdeHolo.rotate = Number(this.value);
+      if (id === 'holo-opacity') geselecteerdeHolo.opacity = Number(this.value);
+      holoWaardenTonen();
+      holoBronOpmaken();
+      bewaarProject();
+    });
+  });
+  $('btn-holo-naar-midden').addEventListener('click', function() {
+    if (!geselecteerdeHolo || !map) return;
+    var c = map.getCenter();
+    geselecteerdeHolo.lat = c.lat;
+    geselecteerdeHolo.lon = c.lng;
+    holoBronOpmaken(); bewaarProject(); renderHoloLijst();
+  });
+  $('btn-holo-verwijderen').addEventListener('click', function() {
+    if (!geselecteerdeHolo) return;
+    var idx = project.holos.findIndex(function(h) { return h.id === geselecteerdeHolo.id; });
+    if (idx >= 0) verwijderHolo(idx);
+  });
+
+  // Beeld
+  $('beeld-titel').addEventListener('input', function() {
+    project.titel.tekst = this.value; bewaarProject(); werkBrandingBij();
+  });
+  $('beeld-subtitel').addEventListener('input', function() {
+    project.titel.subtitel = this.value; bewaarProject(); werkBrandingBij();
+  });
+  $('beeld-klok').addEventListener('change', function() {
+    project.titel.klok = this.value; bewaarProject(); werkBrandingBij();
+  });
+  $('btn-logo-laden').addEventListener('click', function() { $('file-logo').click(); });
+  $('file-logo').addEventListener('change', function() {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var lezer = new FileReader();
+    lezer.onload = function() { zetLogo(lezer.result); bewaarProject(); };
+    lezer.readAsDataURL(f);
+    this.value = '';
+  });
+  $('btn-logo-weg').addEventListener('click', function() { zetLogo(''); bewaarProject(); });
+
+  $('kaart-terrein').addEventListener('change', function() { zetTerrein(this.checked); });
+  $('btn-pas-in').addEventListener('click', pasBaanInBeeld);
+  $('btn-3d').addEventListener('click', function() {
+    if (!map) return;
+    map.easeTo({ pitch: 55, bearing: -20, zoom: Math.max(map.getZoom(), 13.2), duration: 800 });
+  });
+
+  // Export
+  $('btn-export').addEventListener('click', exporteerVideo);
+  $('btn-project-json').addEventListener('click', exporteerProjectJSON);
+  $('btn-project-opslaan').addEventListener('click', function() {
+    bewaarProject();
+    toast('💾 Project bewaard in deze browser');
+  });
+  $('btn-project-laden').addEventListener('click', function() { $('file-project').click(); });
+  $('file-project').addEventListener('change', function() {
+    var f = this.files && this.files[0];
+    if (f) importeerProjectJSON(f);
+    this.value = '';
+  });
+}
+
+/* ─── 3D TERREIN ────────────────────────────────────────────────────── */
+function zetTerrein(aan) {
+  if (!map) return;
+  try {
+    if (aan) {
+      if (!map.getSource('terrain-dem')) {
+        map.addSource('terrain-dem', {
+          type: 'raster-dem',
+          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+          encoding: 'terrarium',
+          tileSize: 256,
+          maxzoom: 12,
+        });
+      }
+      map.setTerrain({ source: 'terrain-dem', exaggeration: 1.4 });
+      toast('3D-hoogte aan');
+    } else {
+      map.setTerrain(null);
+      toast('3D-hoogte uit');
+    }
+  } catch(e) {
+    toast('Terrein kon niet geladen worden');
+  }
+}
+
+/* ─── TEKEN ALLES ───────────────────────────────────────────────────── */
+function tekenAlles() {
+  tekenTrack();
+  tekenTijdlijn();
+  renderCameraLijst();
+  renderTijdLijst();
+  renderHoloLijst();
+  werkTijdlijnUI();
+  if (punten.length) updateScene();
+}
+</script>
+</body>
+</html>

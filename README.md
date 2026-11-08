@@ -2,7 +2,7 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
-**Versie:** v0.29 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+**Versie:** v0.30 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
 
 ## 🗂️ Bestandsstructuur
 
@@ -10,6 +10,8 @@ Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 index.html          — Keuzescherm (🗺️ Spelersscherm / 🎬 Regie)
 speler.html         — Spelersscherm (MapLibre kaart, opdrachten, navigatie)
 regie.html          — Regischerm (PIN-beveiligd, volledig beheer)
+studio.html         — Studio (PIN-beveiligd): opnames terugkijken, camera animeren, exporteren
+css/studio.css      — Stijlen studio
 css/speler.css      — Stijlen spelersscherm
 css/regie.css       — Stijlen regischerm
 js/sync.js          — Supabase API wrappers (API, SignalBus, PositieStore, SettingsStore)
@@ -79,6 +81,26 @@ manifest-regie.json — PWA manifest regischerm
   - **Export JSON**: baan, momenten en keyframes met tijdstempels, om later opnieuw of in een montage-app te gebruiken
   - **Let op bij WebM**: de export duurt even lang als de animatie zelf (opnemen gebeurt in reële tijd) en de browser zet geen duur in het bestand — sommige spelers tonen daarom een oneindige lengte. Importeren in Premiere/DaVinci gaat goed; anders eerst door Handbrake halen.
 - **SignalBus handlers**: `van_route_af`, `terug_op_route`, `opdracht_voltooid`, `opdracht_gefaald` (toast)
+
+## 🎬 Studio (`studio.html`, v0.30)
+
+Aparte console voor het maken van de kaartanimatie. Bereikbaar via de knop **🎬 Studio** in de Opname-tab van de regie, of direct op `/studio.html`. Zelfde pincode als de regie.
+
+- **Tijdlijn met datum en tijd**: kies een opname en scrub door de rit. Bovenin de klok (uu:mm:ss) met de datum, daarnaast de positie (lat/lon) en snelheid op dat moment. Drie sporen: **momenten** (opdracht, bericht, off-route), **tempo** (snelheidswissels) en **camera** (keyframes). Klik op een markeerpunt om erheen te springen.
+- **Camera-keyframes (3D)**: zet de kaart zoals je wilt (sleep, zoom, rechtermuisknop + slepen om te draaien en te kantelen, tot 85°) en klik **＋ Keyframe op deze tijd**. Per keyframe kies je:
+  - **Volg de spelers** — de camera houdt de pin in beeld en interpoleert alleen zoom, peiling en kanteling.
+  - **Vast camerapunt** — de camera blijft daar staan terwijl de spelers doorrijden.
+  Tussen twee keyframes wordt alles vloeiend geïnterpoleerd (peiling via de kortste draai). Zonder keyframes volgt de camera automatisch.
+- **Tempo-keyframes**: bepaal per tijdstip hoe snel de tijd daarna loopt (0,25× slow motion tot 60×). Zo houd je een stuk rustig in beeld of spoel je een saai stuk door.
+- **Hologrammen (PNG)**: laad een PNG met transparante achtergrond; hij komt op het kaartmidden te staan als billboard in de 3D-kaart, met schuifjes voor grootte, draaiing en doorzichtigheid. Klik op de kaart om hem te verplaatsen. Wordt in het project bewaard, dus later aanpasbaar.
+- **Beeld**: titel + subtitel linksonder, optioneel datum/tijd linksboven en een PNG-logo rechtsonder — alle drie worden bij de export in het beeld gebrand.
+- **Kaart**: **3D-stand (schuin)**, **Pas baan in beeld** en optioneel **3D-hoogte** (terrein via publieke DEM-tiles).
+- **Export**: WebM in 720p/1080p/1440p/4K bij 30 of 60 fps en drie bitrates. De export gebeurt in reële tijd (een animatie van 2 minuten duurt ook 2 minuten).
+- **Project**: camera-keyframes, tempo, hologrammen en titel worden automatisch per opname in de browser bewaard (`localStorage`) en zijn te downloaden/openen als JSON-bestand.
+
+Let op: de export duurt even lang als de animatie en de browser zet geen duur in het WebM-bestand — sommige spelers tonen daarom een oneindige lengte. Monteren in Premiere/DaVinci gaat goed; anders eerst door Handbrake halen.
+
+De **Opname-tab in de regie** blijft bestaan voor het starten/stoppen van opnames en heeft een eenvoudige terugkijk/exportfunctie; de Studio is de uitgebreide versie.
 
 ## 🗄️ Supabase tabellen
 
