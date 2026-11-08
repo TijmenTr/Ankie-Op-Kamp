@@ -40,18 +40,15 @@
 
   <div id="studio-main">
     <div id="studio-map">
-      <div id="branding-preview">
-        <div class="bp-klok" id="bp-klok" style="display:none"></div>
-        <div class="bp-titel" id="bp-titel" style="display:none"></div>
-        <img class="bp-logo" id="bp-logo" style="display:none" alt="">
-      </div>
+      <canvas id="monitor"></canvas>
     </div>
 
     <aside id="studio-paneel">
       <nav class="paneel-tabs">
         <button data-paneel="camera" class="active">Camera</button>
         <button data-paneel="tijd">Tijd</button>
-        <button data-paneel="holo">Hologram</button>
+        <button data-paneel="route">Route</button>
+        <button data-paneel="holo">Holo</button>
         <button data-paneel="beeld">Beeld</button>
         <button data-paneel="export">Export</button>
       </nav>
@@ -108,6 +105,41 @@
             <div class="knoppenrij" style="margin-top:0.5rem">
               <button class="knop rood" id="btn-tijd-wissen">Alles wissen</button>
             </div>
+          </div>
+        </section>
+
+        <!-- ROUTE -->
+        <section id="paneel-route">
+          <div class="blok">
+            <h4>Route op de kaart</h4>
+            <div class="rij"><label>Route</label>
+              <select id="route-select"><option value="">— geen route —</option></select>
+              <button class="knop" id="btn-route-herlaad" title="Routes verversen">↻</button>
+            </div>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.76rem;color:#cbd5e1">
+              <input type="checkbox" id="route-tonen"> Route zichtbaar in het beeld
+            </label>
+            <p class="hint">De route komt onder de gereden lijn te liggen.</p>
+          </div>
+          <div class="blok">
+            <h4>Live navigatie</h4>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.76rem;color:#cbd5e1">
+              <input type="checkbox" id="nav-tonen"> Navigatiebanner in beeld
+            </label>
+            <p class="hint">Toont de eerstvolgende manoeuvre met afstand, op basis van de gekozen route (OSRM-stappen).</p>
+            <p class="hint" id="nav-hint" style="color:#fbbf24;display:none">Kies eerst een route hierboven.</p>
+          </div>
+          <div class="blok">
+            <h4>Meldingen</h4>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.76rem;color:#cbd5e1">
+              <input type="checkbox" id="meld-tonen"> Opdracht-, bericht- en storingskaarten
+            </label>
+            <div class="rij" style="margin-top:0.45rem">
+              <label>Duur</label>
+              <input type="number" id="meld-duur" value="6" min="1" max="60" step="1">
+              <span class="waarde">sec</span>
+            </div>
+            <p class="hint">Kaarten komen in beeld op het moment dat ze bij de spelers verschenen, met een korte fade.</p>
           </div>
         </section>
 
@@ -263,6 +295,10 @@ var recorder = null, recorderTrack = null, recorderChunks = [];
 var geselecteerdeHolo = null;
 var logoImg = null;
 var holoAfbeeldingen = {};      // id -> true zodra de afbeelding in de kaart staat
+var routesLijst = [];           // routes uit aok_routes
+var routeBron = null;           // { id, coords, stappen, afstand, duur }
+var monitorCanvas = null, monitorCtx = null;
+var laatsteMonitorFrame = 0;
 
 var MOMENT_KLEUREN = {
   opdracht: '#fbbf24', opdracht_voltooid: '#22c55e', opdracht_gefaald: '#ef4444',
@@ -279,6 +315,7 @@ function leegProject() {
     snelheid: [],      // { id, t, tempo }
     holos: [],         // { id, lat, lon, png, size, rotate, opacity, hoogte, naam }
     titel: { tekst: '', subtitel: '', klok: 'geen', logoPng: '' },
+    weergave: { routeId: '', routeTonen: false, nav: false, meldingen: true, meldingDuur: 6 },
   };
 }
 var project = leegProject();
@@ -295,6 +332,8 @@ function toast(tekst) {
   clearTimeout(el._t);
   el._t = setTimeout(function() { el.classList.remove('zichtbaar'); }, 2600);
 }
+
+function verversBeeld() { if (map) map.triggerRepaint(); }
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -348,6 +387,7 @@ async function startStudio() {
   initMap();
   bindUI();
   laadOpnames();
+  laadRoutes();
 }
 
 function initMap() {
@@ -397,6 +437,7 @@ function initMap() {
         paint: { 'icon-opacity': ['get', 'opacity'] } });
 
       map.on('render', renderTick);
+      tekenRoute();
       tekenAlles();
     });
 
@@ -532,12 +573,23 @@ function laadProject() {
   $('beeld-subtitel').value = project.titel.subtitel || '';
   $('beeld-klok').value = project.titel.klok || 'geen';
   zetLogo(project.titel.logoPng || '');
+
+  // Weergave (route, navigatie, meldingen)
+  project.weergave = Object.assign(
+    { routeId: '', routeTonen: false, nav: false, meldingen: true, meldingDuur: 6 },
+    project.weergave || {});
+  $('route-select').value = project.weergave.routeId || '';
+  $('route-tonen').checked = !!project.weergave.routeTonen;
+  $('nav-tonen').checked = !!project.weergave.nav;
+  $('meld-tonen').checked = project.weergave.meldingen !== false;
+  $('meld-duur').value = project.weergave.meldingDuur || 6;
+  if (project.weergave.routeId) laadRoute(project.weergave.routeId);
+
   project.holos.forEach(function(h) { zorgVoorAfbeelding(h); });
   holoBronOpmaken();
   renderCameraLijst();
   renderTijdLijst();
   renderHoloLijst();
-  werkBrandingBij();
 }
 
 /* ─── TIJD EN POSITIE ───────────────────────────────────────────────── */
@@ -717,7 +769,6 @@ function werkTijdlijnUI() {
   var rest = (tempo > 0) ? (eindTs - cursorTs) / tempo : 0;
   $('tl-duur').textContent = 'nog ' + duurTekst(rest) + ' · ' + tempo + '×';
   $('tl-playhead').style.left = 'calc(0.8rem + (100% - 1.6rem) * ' + (pctVan(cursorTs) / 100) + ')';
-  werkBrandingBij();
 }
 
 function zetCursorVanMuis(ev) {
@@ -949,48 +1000,427 @@ function zetLogo(png) {
   project.titel.logoPng = png || '';
   if (png) {
     logoImg = new Image();
-    logoImg.onload = function() { $('bp-logo').src = png; $('bp-logo').style.display = 'block'; };
     logoImg.src = png;
   } else {
     logoImg = null;
-    $('bp-logo').style.display = 'none';
-    $('bp-logo').removeAttribute('src');
   }
 }
 
-function werkBrandingBij() {
-  var titel = project.titel.tekst || '';
-  var sub = project.titel.subtitel || '';
-  var bpTitel = $('bp-titel');
-  if (titel || sub) {
-    bpTitel.style.display = 'block';
-    bpTitel.innerHTML = (titel ? '<div>' + escHtml(titel) + '</div>' : '') +
-                        (sub ? '<div style="font-size:0.62em;color:#fbbf24">' + escHtml(sub) + '</div>' : '');
-  } else {
-    bpTitel.style.display = 'none';
+/* ─── ROUTE ─────────────────────────────────────────────────────────── */
+async function laadRoutes() {
+  try {
+    var r = await API.get('aok_routes', 'order=created_at.desc&limit=50');
+    routesLijst = (r.data || []).filter(function(x) { return !x.deleted; });
+  } catch(e) { routesLijst = []; }
+
+  var sel = $('route-select');
+  var huidig = (project.weergave && project.weergave.routeId) || '';
+  sel.innerHTML = '<option value="">— geen route —</option>' + routesLijst.map(function(r) {
+    return '<option value="' + r.id + '">' + escHtml(r.naam || 'Route') +
+      (r.aflevering ? ' · ' + escHtml(r.aflevering) : '') + (r.actief ? ' ✓ actief' : '') + '</option>';
+  }).join('');
+  sel.value = huidig;
+}
+
+async function laadRoute(id) {
+  if (!id) { routeBron = null; tekenRoute(); navHintBijwerken(); return; }
+  var r = routesLijst.find(function(x) { return x.id === id; });
+  if (!r) {
+    try { var res = await API.get('aok_routes', 'id=eq.' + id + '&limit=1'); r = (res.data || [])[0]; } catch(e) {}
+  }
+  if (!r) { routeBron = null; tekenRoute(); return; }
+
+  var coords = [], stappen = [];
+  try { coords = (JSON.parse(r.geojson || '{}').coordinates) || []; } catch(e) {}
+  var wps = [];
+  try { wps = JSON.parse(r.waypoints || '[]'); } catch(e) {}
+
+  if (wps.length >= 2) {
+    try {
+      var route = await osrmRoute(wps);
+      stappen = (route.legs || []).reduce(function(acc, l) { return acc.concat(l.steps || []); }, []);
+      if (!coords.length && route.geometry) coords = route.geometry.coordinates;
+    } catch(e) { console.warn('OSRM-stappen voor route mislukt:', e); }
   }
 
-  var bpKlok = $('bp-klok');
+  routeBron = { id: id, naam: r.naam, coords: coords, stappen: stappen };
+  tekenRoute();
+  navHintBijwerken();
+}
+
+function tekenRoute() {
+  if (!map) return;
+  try {
+    var zicht = !!(project.weergave && project.weergave.routeTonen && routeBron && routeBron.coords.length > 1);
+
+  if (!map.getSource('st-route')) {
+    map.addSource('st-route', { type: 'geojson', data: leegLijn() });
+    var voor = map.getLayer('st-track-bg') ? 'st-track-bg' : undefined;
+    map.addLayer({
+      id: 'st-route-bg', type: 'line', source: 'st-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#04121c', 'line-width': 9, 'line-opacity': 0 },
+    }, voor);
+    map.addLayer({
+      id: 'st-route-line', type: 'line', source: 'st-route',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#8ecbff', 'line-width': 5, 'line-dasharray': [2, 1.4], 'line-opacity': 0 },
+    }, voor);
+  }
+
+  map.getSource('st-route').setData(zicht
+    ? { type: 'Feature', geometry: { type: 'LineString', coordinates: routeBron.coords } }
+    : leegLijn());
+  map.setPaintProperty('st-route-line', 'line-opacity', zicht ? 1 : 0);
+  map.setPaintProperty('st-route-bg', 'line-opacity', zicht ? 0.55 : 0);
+  } catch(e) { console.warn('Route tekenen mislukt:', e); }
+}
+
+function navHintBijwerken() {
+  var hint = $('nav-hint');
+  var heeftStappen = !!(routeBron && routeBron.stappen && routeBron.stappen.length);
+  hint.style.display = ($('nav-tonen').checked && !heeftStappen) ? 'block' : 'none';
+}
+
+/* ─── NAVIGATIE-STAAT ───────────────────────────────────────────────── */
+function navStateOp(ts) {
+  if (!routeBron || !routeBron.stappen || !routeBron.stappen.length) return null;
+  var pos = positieOp(ts);
+  if (!pos) return null;
+  var stappen = routeBron.stappen;
+  var idx = 0;
+
+  // Schuif op naar de eerstvolgende manoeuvre (zelfde regel als het spelersscherm)
+  while (idx < stappen.length - 1) {
+    var cur = stappen[idx];
+    if (!cur || !cur.maneuver || !cur.maneuver.location) { idx++; continue; }
+    var loc = cur.maneuver.location;
+    var d = haversineM(pos.lat, pos.lon, loc[1], loc[0]);
+    var drempel = Math.max(35, (cur.distance || 0) * 0.08);
+    if (d < drempel) idx++; else break;
+  }
+
+  var stap = stappen[idx];
+  if (!stap) return null;
+  var volgende = stappen[idx + 1] || null;
+  var afstand = (stap.maneuver && stap.maneuver.location)
+    ? haversineM(pos.lat, pos.lon, stap.maneuver.location[1], stap.maneuver.location[0])
+    : (stap.distance || 0);
+
+  return stapNaarLabel(stap, volgende, afstand);
+}
+
+function stapNaarLabel(stap, volgende, afstandM) {
+  var m = (stap.maneuver && stap.maneuver.modifier) ? stap.maneuver.modifier : '';
+  var t = (stap.maneuver && stap.maneuver.type) ? stap.maneuver.type : '';
+  var label = stap.ref || stap.name || '';
+  var pijl = '↑', tekst = 'Rijd rechtdoor', kleur = '#3b82f6';
+
+  if (t === 'arrive') { pijl = '◉'; tekst = 'Bestemming bereikt'; kleur = '#22c55e'; }
+  else if (t === 'depart') { tekst = label ? 'Rij via ' + label : 'Vertrek'; }
+  else if (t === 'roundabout' || t === 'rotary') {
+    pijl = '⟳';
+    tekst = 'Neem afslag ' + ((stap.maneuver && stap.maneuver.exit) || 1) +
+      (volgende && volgende.name ? ' richting ' + volgende.name : '');
+    kleur = '#f59e0b';
+  } else {
+    var tbl = {
+      'left': ['↰', 'Sla linksaf', '#ef4444'],
+      'right': ['↱', 'Sla rechtsaf', '#ef4444'],
+      'sharp left': ['↰', 'Scherp linksaf', '#ef4444'],
+      'sharp right': ['↱', 'Scherp rechtsaf', '#ef4444'],
+      'slight left': ['↖', 'Licht linksaf', '#f59e0b'],
+      'slight right': ['↗', 'Licht rechtsaf', '#f59e0b'],
+      'straight': ['↑', 'Ga rechtdoor', '#3b82f6'],
+      'uturn': ['↺', 'U-bocht', '#ef4444'],
+    };
+    var e = tbl[m];
+    if (e) { pijl = e[0]; tekst = e[1]; kleur = e[2]; }
+    if (t === 'fork') { tekst = m.indexOf('left') !== -1 ? 'Houd links aan' : 'Houd rechts aan'; }
+    if (label) tekst += ' — ' + label;
+  }
+
+  return { pijl: pijl, tekst: tekst, kleur: kleur, afstand: formatAfstandM(afstandM) };
+}
+
+function formatAfstandM(m) {
+  return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km';
+}
+
+/* ─── TEKENEN OP CANVAS (ook in de export) ──────────────────────────── */
+function rondRect(ctx, x, y, w, h, r) {
+  var rad = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
+}
+
+function breekTekst(ctx, tekst, maxBreedte, maxRegels) {
+  var woorden = String(tekst || '').split(/\s+/).filter(Boolean);
+  var regels = [], huidig = '';
+  for (var i = 0; i < woorden.length; i++) {
+    var probeer = huidig ? huidig + ' ' + woorden[i] : woorden[i];
+    if (ctx.measureText(probeer).width > maxBreedte && huidig) {
+      regels.push(huidig);
+      huidig = woorden[i];
+      if (regels.length === maxRegels) break;
+    } else {
+      huidig = probeer;
+    }
+  }
+  if (huidig && regels.length < maxRegels) regels.push(huidig);
+  return regels;
+}
+
+function tekenOverlays(ctx, W, H) {
+  tekenNavigatie(ctx, W, H);
+  tekenMelding(ctx, W, H);
+  tekenBranding(ctx, W, H);
+}
+
+function tekenNavigatie(ctx, W, H) {
+  if (!project.weergave || !project.weergave.nav) return;
+  var st = navStateOp(cursorTs);
+  if (!st) return;
+
+  ctx.save();
+  var hoogte = H * 0.135;
+  ctx.fillStyle = 'rgba(13,28,38,0.94)';
+  ctx.fillRect(0, 0, W, hoogte);
+  ctx.fillStyle = 'rgba(255,214,0,0.9)';
+  ctx.fillRect(0, hoogte - Math.max(2, H * 0.004), W, Math.max(2, H * 0.004));
+
+  var box = hoogte * 0.62, pad = W * 0.014;
+  ctx.fillStyle = st.kleur;
+  rondRect(ctx, pad, (hoogte - box) / 2, box, box, box * 0.22);
+  ctx.fill();
+
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '900 ' + Math.round(box * 0.58) + 'px Nunito, sans-serif';
+  ctx.fillText(st.pijl, pad + box / 2, (hoogte - box) / 2 + box * 0.53);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 ' + Math.round(hoogte * 0.24) + 'px Nunito, sans-serif';
+  var tekstX = pad * 2 + box;
+  var maxW = W - tekstX - W * 0.14;
+  var regels = breekTekst(ctx, st.tekst, maxW, 2);
+  var startY = hoogte / 2 - (regels.length - 1) * hoogte * 0.14;
+  for (var i = 0; i < regels.length; i++) {
+    ctx.fillText(regels[i], tekstX, startY + i * hoogte * 0.28);
+  }
+
+  ctx.textAlign = 'right';
+  ctx.font = '900 ' + Math.round(hoogte * 0.28) + 'px Nunito, sans-serif';
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText(st.afstand, W - pad, hoogte / 2);
+  ctx.restore();
+}
+
+function meldingOp(ts) {
+  if (!project.weergave || project.weergave.meldingen === false) return null;
+  var duur = Math.max(1, Number(project.weergave.meldingDuur) || 6) * 1000;
+  var fade = 350;
+
+  for (var i = 0; i < momenten.length; i++) {
+    var m = momenten[i];
+    if (m.type === 'opname_start' || m.type === 'opname_stop') continue;
+    var eind = m.ts + duur;
+
+    if (m.type === 'van_route_af') {
+      var terug = null;
+      for (var j = i + 1; j < momenten.length; j++) {
+        if (momenten[j].type === 'terug_op_route') { terug = momenten[j].ts; break; }
+      }
+      eind = terug ? terug : m.ts + Math.max(duur, 8000);
+    }
+
+    if (ts >= m.ts && ts <= eind) {
+      var a = 1;
+      if (ts - m.ts < fade) a = (ts - m.ts) / fade;
+      if (eind - ts < fade) a = Math.min(a, (eind - ts) / fade);
+      return { moment: m, alpha: Math.max(0, Math.min(1, a)) };
+    }
+  }
+  return null;
+}
+
+function tekenMelding(ctx, W, H) {
+  var s = meldingOp(cursorTs);
+  if (!s) return;
+  var m = s.moment;
+
+  ctx.save();
+  ctx.globalAlpha = s.alpha;
+
+  // Off-route: rode rand + waarschuwingsbalk
+  if (m.type === 'van_route_af') {
+    var dik = Math.max(4, H * 0.008);
+    ctx.fillStyle = 'rgba(239,68,68,0.9)';
+    ctx.fillRect(0, 0, W, dik);
+    ctx.fillRect(0, H - dik, W, dik);
+    ctx.fillRect(0, 0, dik, H);
+    ctx.fillRect(W - dik, 0, dik, H);
+
+    var tekst = '⚠️  Van de route af';
+    ctx.font = '900 ' + Math.round(H * 0.042) + 'px Nunito, sans-serif';
+    var tw = ctx.measureText(tekst).width;
+    var bh = H * 0.085, bw = tw + W * 0.05, bx = (W - bw) / 2, by = H * 0.20;
+    ctx.fillStyle = 'rgba(239,68,68,0.95)';
+    rondRect(ctx, bx, by, bw, bh, bh / 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(tekst, W / 2, by + bh / 2);
+    ctx.restore();
+    return;
+  }
+
+  var cfg = {
+    bericht:           { kop: 'Bericht van regie', bg: '#1e3a5f', rand: 'rgba(59,130,246,0.7)', tekst: '#e2e8f0', accent: '#93c5fd' },
+    opdracht:          { kop: 'Nieuwe opdracht',   bg: '#ffffff', rand: 'rgba(15,23,42,0.25)',  tekst: '#1e293b', accent: '#1e3a5f' },
+    opdracht_voltooid: { kop: '✓  Gelukt',         bg: '#14532d', rand: 'rgba(34,197,94,0.75)',  tekst: '#f0fff5', accent: '#86efac' },
+    opdracht_gefaald:  { kop: '✗  Mislukt',        bg: '#7f1d1d', rand: 'rgba(239,68,68,0.75)',  tekst: '#fff1f1', accent: '#fca5a5' },
+  }[m.type] || { kop: 'Melding', bg: '#1e293b', rand: 'rgba(255,255,255,0.25)', tekst: '#e2e8f0', accent: '#fbbf24' };
+
+  var titel = (m.type === 'bericht') ? (m.tekst || '') : (m.titel || '');
+  var sub = (m.type === 'bericht') ? '' : (m.tekst || '');
+  if (m.type === 'opdracht_voltooid' || m.type === 'opdracht_gefaald') sub = '';
+
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, W, H);
+
+  var cardW = Math.min(W * 0.62, H * 1.15);
+  var pad = cardW * 0.055;
+  var kopSize = Math.round(H * 0.026);
+  var titelSize = Math.round(H * 0.042);
+  var subSize = Math.round(H * 0.028);
+
+  ctx.font = '900 ' + titelSize + 'px Nunito, sans-serif';
+  var titelRegels = titel ? breekTekst(ctx, titel, cardW - pad * 2, 3) : [];
+  ctx.font = '700 ' + subSize + 'px Nunito, sans-serif';
+  var subRegels = sub ? breekTekst(ctx, sub, cardW - pad * 2, 4) : [];
+
+  var cardH = pad * 2 + kopSize * 1.5 +
+              titelRegels.length * titelSize * 1.26 +
+              subRegels.length * subSize * 1.32;
+  var cx = (W - cardW) / 2, cy = (H - cardH) / 2;
+
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = H * 0.03;
+  ctx.fillStyle = cfg.bg;
+  rondRect(ctx, cx, cy, cardW, cardH, H * 0.02);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = cfg.rand;
+  ctx.lineWidth = Math.max(2, H * 0.003);
+  rondRect(ctx, cx, cy, cardW, cardH, H * 0.02);
+  ctx.stroke();
+
+  var y = cy + pad;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = cfg.accent;
+  ctx.font = '900 ' + kopSize + 'px Nunito, sans-serif';
+  ctx.fillText(cfg.kop, cx + pad, y);
+  y += kopSize * 1.5;
+
+  ctx.fillStyle = cfg.tekst;
+  ctx.font = '900 ' + titelSize + 'px Nunito, sans-serif';
+  for (var i = 0; i < titelRegels.length; i++) {
+    ctx.fillText(titelRegels[i], cx + pad, y);
+    y += titelSize * 1.26;
+  }
+
+  if (subRegels.length) {
+    ctx.font = '700 ' + subSize + 'px Nunito, sans-serif';
+    ctx.globalAlpha = s.alpha * 0.92;
+    for (var k = 0; k < subRegels.length; k++) {
+      ctx.fillText(subRegels[k], cx + pad, y);
+      y += subSize * 1.32;
+    }
+  }
+
+  ctx.restore();
+}
+
+function tekenBranding(ctx, W, H) {
+  // datum/tijd linksboven
   if (project.titel.klok && project.titel.klok !== 'geen' && punten.length) {
-    bpKlok.style.display = 'block';
-    bpKlok.textContent = project.titel.klok === 'datumtijd'
+    var tekst = project.titel.klok === 'datumtijd'
       ? datumKort(cursorTs) + ' · ' + klokKort(cursorTs)
       : klokKort(cursorTs);
-  } else {
-    bpKlok.style.display = 'none';
+    ctx.font = '900 ' + Math.round(H * 0.055) + 'px Nunito, sans-serif';
+    ctx.fillStyle = '#fbbf24';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = H * 0.02;
+    ctx.fillText(tekst, W * 0.04, H * 0.09);
+    ctx.shadowBlur = 0;
+  }
+
+  // titel linksonder
+  var titel = project.titel.tekst || '';
+  var sub = project.titel.subtitel || '';
+  if (titel || sub) {
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = H * 0.02;
+    var y = H * 0.88;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    if (sub) {
+      ctx.font = '900 ' + Math.round(H * 0.032) + 'px Nunito, sans-serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText(sub, W * 0.04, y);
+      y -= H * 0.055;
+    }
+    if (titel) {
+      ctx.font = '900 ' + Math.round(H * 0.05) + 'px Nunito, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(titel, W * 0.04, y);
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  // logo rechtsonder
+  if (logoImg && logoImg.complete && logoImg.naturalWidth) {
+    var lh = H * 0.09;
+    var lw = lh * (logoImg.naturalWidth / logoImg.naturalHeight);
+    ctx.drawImage(logoImg, W - lw - W * 0.03, H - lh - H * 0.06, lw, lh);
   }
 }
 
-/* ─── RENDER-LUS VOOR EXPORT ────────────────────────────────────────── */
+/* ─── RENDER-LUS: EXPORT EN PROGRAMMABEELD ──────────────────────────── */
 var laatsteExportFrame = 0;
+var laatsteMonitorFrame = 0;
+
 function renderTick() {
-  if (!exportModus || !compCanvas) return;
-  tekenCompositie();
-  var fps = parseInt($('export-fps').value, 10) || 30;
-  var nu = performance.now();
-  if (nu - laatsteExportFrame < (1000 / fps) - 2) return;
-  laatsteExportFrame = nu;
-  if (recorderTrack && recorderTrack.requestFrame) recorderTrack.requestFrame();
+  if (!map) return;
+
+  if (exportModus) {
+    if (!compCanvas) return;
+    tekenCompositie();
+    var fps = parseInt($('export-fps').value, 10) || 30;
+    var nu = performance.now();
+    if (nu - laatsteExportFrame < (1000 / fps) - 2) return;
+    laatsteExportFrame = nu;
+    if (recorderTrack && recorderTrack.requestFrame) recorderTrack.requestFrame();
+    return;
+  }
+
+  // Programmabeeld: precies wat er geëxporteerd wordt
+  var nu2 = performance.now();
+  if (nu2 - laatsteMonitorFrame < 33) return;
+  laatsteMonitorFrame = nu2;
+  tekenMonitor();
 }
 
 function tekenCompositie() {
@@ -998,49 +1428,46 @@ function tekenCompositie() {
   var W = compCanvas.width, H = compCanvas.height;
   compCtx.clearRect(0, 0, W, H);
   try { compCtx.drawImage(map.getCanvas(), 0, 0, W, H); } catch(e) { return; }
+  tekenOverlays(compCtx, W, H);
+}
 
-  // datum/tijd linksboven
-  if (project.titel.klok && project.titel.klok !== 'geen' && punten.length) {
-    var tekst = project.titel.klok === 'datumtijd'
-      ? datumKort(cursorTs) + ' · ' + klokKort(cursorTs)
-      : klokKort(cursorTs);
-    compCtx.font = '900 ' + Math.round(H * 0.055) + 'px Nunito, sans-serif';
-    compCtx.fillStyle = '#fbbf24';
-    compCtx.shadowColor = 'rgba(0,0,0,0.9)';
-    compCtx.shadowBlur = H * 0.02;
-    compCtx.fillText(tekst, W * 0.04, H * 0.09);
-    compCtx.shadowBlur = 0;
+function tekenMonitor() {
+  var el = $('monitor');
+  if (!el || !map) return;
+  if (!monitorCtx) { monitorCanvas = el; monitorCtx = el.getContext('2d'); }
+
+  var cw = el.clientWidth, ch = el.clientHeight;
+  var dpr = window.devicePixelRatio || 1;
+  if (!cw || !ch) return;
+  if (el.width !== Math.round(cw * dpr) || el.height !== Math.round(ch * dpr)) {
+    el.width = Math.round(cw * dpr);
+    el.height = Math.round(ch * dpr);
   }
 
-  // titel linksonder
-  var titel = project.titel.tekst || '';
-  var sub = project.titel.subtitel || '';
-  if (titel || sub) {
-    compCtx.shadowColor = 'rgba(0,0,0,0.9)';
-    compCtx.shadowBlur = H * 0.02;
-    compCtx.fillStyle = '#ffffff';
-    compCtx.font = '900 ' + Math.round(H * 0.05) + 'px Nunito, sans-serif';
-    var y = H * 0.88;
-    if (sub) {
-      compCtx.font = '900 ' + Math.round(H * 0.032) + 'px Nunito, sans-serif';
-      compCtx.fillStyle = '#fbbf24';
-      compCtx.fillText(sub, W * 0.04, y);
-      y -= H * 0.055;
-    }
-    if (titel) {
-      compCtx.font = '900 ' + Math.round(H * 0.05) + 'px Nunito, sans-serif';
-      compCtx.fillStyle = '#ffffff';
-      compCtx.fillText(titel, W * 0.04, y);
-    }
-    compCtx.shadowBlur = 0;
-  }
+  var ctx = monitorCtx, W = el.width, H = el.height;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#05080f';
+  ctx.fillRect(0, 0, W, H);
 
-  // logo rechtsonder
-  if (logoImg && logoImg.complete && logoImg.naturalWidth) {
-    var lh = H * 0.09;
-    var lw = lh * (logoImg.naturalWidth / logoImg.naturalHeight);
-    compCtx.drawImage(logoImg, W - lw - W * 0.03, H - lh - H * 0.06, lw, lh);
-  }
+  var res = $('export-resolutie').value.split('x');
+  var aspect = (parseInt(res[0], 10) || 1920) / (parseInt(res[1], 10) || 1080);
+  var mw = W, mh = W / aspect;
+  if (mh > H) { mh = H; mw = H * aspect; }
+  var ox = (W - mw) / 2, oy = (H - mh) / 2;
+
+  try { ctx.drawImage(map.getCanvas(), ox, oy, mw, mh); } catch(e) {}
+
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.beginPath();
+  ctx.rect(0, 0, mw, mh);
+  ctx.clip();
+  tekenOverlays(ctx, mw, mh);
+  ctx.restore();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox + 0.5, oy + 0.5, mw - 1, mh - 1);
 }
 
 /* ─── EXPORT ────────────────────────────────────────────────────────── */
@@ -1176,7 +1603,7 @@ function downloadBestand(inhoud, naam, mime) {
 function exporteerProjectJSON() {
   if (!opname) { toast('Kies eerst een opname'); return; }
   var data = {
-    versie: 'v0.30',
+    versie: 'v0.31',
     soort: 'aok-studio-project',
     opname: { id: opname.id, naam: opname.naam, gestart: opname.gestart, gestopt: opname.gestopt },
     tijdbasis: { start_ms: beginTs, eind_ms: eindTs },
@@ -1202,10 +1629,22 @@ function importeerProjectJSON(bestand) {
       $('beeld-subtitel').value = project.titel.subtitel || '';
       $('beeld-klok').value = project.titel.klok || 'geen';
       zetLogo(project.titel.logoPng || '');
+
+      project.weergave = Object.assign(
+        { routeId: '', routeTonen: false, nav: false, meldingen: true, meldingDuur: 6 },
+        project.weergave || {});
+      $('route-select').value = project.weergave.routeId || '';
+      $('route-tonen').checked = !!project.weergave.routeTonen;
+      $('nav-tonen').checked = !!project.weergave.nav;
+      $('meld-tonen').checked = project.weergave.meldingen !== false;
+      $('meld-duur').value = project.weergave.meldingDuur || 6;
+      if (project.weergave.routeId) laadRoute(project.weergave.routeId);
+
       project.holos.forEach(function(h) { zorgVoorAfbeelding(h); });
       holoBronOpmaken();
       renderCameraLijst(); renderTijdLijst(); renderHoloLijst(); tekenTijdlijn();
       bewaarProject();
+      verversBeeld();
       toast('📂 Project geladen');
     } catch(e) { toast('Dit bestand is geen Studio-project'); }
   };
@@ -1292,15 +1731,54 @@ function bindUI() {
     if (idx >= 0) verwijderHolo(idx);
   });
 
+  // Route & navigatie
+  $('route-select').addEventListener('change', async function() {
+    project.weergave.routeId = this.value;
+    project.weergave.routeTonen = !!this.value;
+    $('route-tonen').checked = !!this.value;
+    bewaarProject();
+    await laadRoute(this.value);
+    navHintBijwerken();
+    verversBeeld();
+    toast(this.value ? 'Route opgehaald' : 'Route uit');
+  });
+  $('route-tonen').addEventListener('change', function() {
+    project.weergave.routeTonen = this.checked;
+    bewaarProject();
+    tekenRoute();
+    verversBeeld();
+  });
+  $('btn-route-herlaad').addEventListener('click', async function() {
+    await laadRoutes();
+    if (project.weergave.routeId) await laadRoute(project.weergave.routeId);
+    toast('Routes verversd');
+  });
+  $('nav-tonen').addEventListener('change', function() {
+    project.weergave.nav = this.checked;
+    bewaarProject();
+    navHintBijwerken();
+    verversBeeld();
+  });
+  $('meld-tonen').addEventListener('change', function() {
+    project.weergave.meldingen = this.checked;
+    bewaarProject();
+    verversBeeld();
+  });
+  $('meld-duur').addEventListener('input', function() {
+    project.weergave.meldingDuur = Math.max(1, Number(this.value) || 6);
+    bewaarProject();
+    verversBeeld();
+  });
+
   // Beeld
   $('beeld-titel').addEventListener('input', function() {
-    project.titel.tekst = this.value; bewaarProject(); werkBrandingBij();
+    project.titel.tekst = this.value; bewaarProject(); verversBeeld();
   });
   $('beeld-subtitel').addEventListener('input', function() {
-    project.titel.subtitel = this.value; bewaarProject(); werkBrandingBij();
+    project.titel.subtitel = this.value; bewaarProject(); verversBeeld();
   });
   $('beeld-klok').addEventListener('change', function() {
-    project.titel.klok = this.value; bewaarProject(); werkBrandingBij();
+    project.titel.klok = this.value; bewaarProject(); verversBeeld();
   });
   $('btn-logo-laden').addEventListener('click', function() { $('file-logo').click(); });
   $('file-logo').addEventListener('change', function() {
@@ -1322,6 +1800,7 @@ function bindUI() {
 
   // Export
   $('btn-export').addEventListener('click', exporteerVideo);
+  $('export-resolutie').addEventListener('change', verversBeeld);
   $('btn-project-json').addEventListener('click', exporteerProjectJSON);
   $('btn-project-opslaan').addEventListener('click', function() {
     bewaarProject();

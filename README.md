@@ -2,7 +2,7 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
-**Versie:** v0.30 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+**Versie:** v0.31 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
 
 ## 🗂️ Bestandsstructuur
 
@@ -92,6 +92,10 @@ Aparte console voor het maken van de kaartanimatie. Bereikbaar via de knop **�
   - **Vast camerapunt** — de camera blijft daar staan terwijl de spelers doorrijden.
   Tussen twee keyframes wordt alles vloeiend geïnterpoleerd (peiling via de kortste draai). Zonder keyframes volgt de camera automatisch.
 - **Tempo-keyframes**: bepaal per tijdstip hoe snel de tijd daarna loopt (0,25× slow motion tot 60×). Zo houd je een stuk rustig in beeld of spoel je een saai stuk door.
+- **Route op de kaart**: kies een route uit de regie (met de OSRM-stappen) en zet hem aan of uit. Hij komt als lichtblauwe stippellijn onder de gereden baan te liggen.
+- **Live navigatie in beeld**: zet de navigatiebanner aan en de animatie toont de eerstvolgende manoeuvre (pijl, straatnaam, afstand) alsof je meerijdt — dezelfde regels als op het spelersscherm.
+- **Meldingen in beeld**: opdracht-, bericht- en storingskaarten verschijnen op het moment dat ze bij de spelers kwamen, met een korte fade. Duur instelbaar; de off-route-melding blijft staan tot ze terug op de route zijn.
+- **Programmabeeld**: het kaartvlak toont live wat er geëxporteerd wordt (inclusief navigatie, meldingen, titel en klok), met de verhouding van de gekozen exportresolutie.
 - **Hologrammen (PNG)**: laad een PNG met transparante achtergrond; hij komt op het kaartmidden te staan als billboard in de 3D-kaart, met schuifjes voor grootte, draaiing en doorzichtigheid. Klik op de kaart om hem te verplaatsen. Wordt in het project bewaard, dus later aanpasbaar.
 - **Beeld**: titel + subtitel linksonder, optioneel datum/tijd linksboven en een PNG-logo rechtsonder — alle drie worden bij de export in het beeld gebrand.
 - **Kaart**: **3D-stand (schuin)**, **Pas baan in beeld** en optioneel **3D-hoogte** (terrein via publieke DEM-tiles).
