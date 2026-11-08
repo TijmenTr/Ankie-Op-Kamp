@@ -428,7 +428,10 @@ html, body {
   box-shadow: 0 4px 24px rgba(0,0,0,0.5);
   z-index: 9999;
   transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+  max-width: min(90vw, 680px);
 }
 .r-toast-show { transform: translateX(-50%) translateY(0); }
 .r-toast-warn    { border-color: #f59e0b; color: #fbbf24; }

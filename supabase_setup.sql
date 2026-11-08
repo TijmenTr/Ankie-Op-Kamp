@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS aok_opdrachten (
   audio_succes     text,                     -- audio_id bij voltooien
   audio_falen      text,                     -- audio_id bij falen
   voltooiing_modus text DEFAULT 'beide',     -- 'beide' | 'gedaan'
+  -- Ronde 5: opname starten/stoppen vanuit een opdracht
+  opname_actie     text,                     -- NULL | 'start' | 'stop'
+  opname_naam      text,                     -- naam voor de nieuwe opname
   status           text DEFAULT 'wacht',
   volgorde         integer DEFAULT 0,
   created_at       timestamptz DEFAULT now()
@@ -224,6 +227,21 @@ DROP POLICY IF EXISTS "anon_all" ON aok_events;
 CREATE POLICY "anon_all" ON aok_opnames FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "anon_all" ON aok_track   FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "anon_all" ON aok_events  FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- ============================================================
+--  RONDE 5 — OPNAME VIA EEN OPDRACHT
+--  Voegt twee kolommen toe aan aok_opdrachten. Veilig om opnieuw
+--  te draaien; bestaande opdrachten blijven ongewijzigd.
+-- ============================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='aok_opdrachten' AND column_name='opname_actie') THEN
+    ALTER TABLE aok_opdrachten ADD COLUMN opname_actie text;   -- NULL | 'start' | 'stop'
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='aok_opdrachten' AND column_name='opname_naam') THEN
+    ALTER TABLE aok_opdrachten ADD COLUMN opname_naam  text;
+  END IF;
+END $$;
 
 -- ============================================================
 --  Opruimen van oude signalen (optioneel, handmatig uitvoeren)

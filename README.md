@@ -2,7 +2,7 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
-**Versie:** v0.28 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+**Versie:** v0.29 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
 
 ## 🗂️ Bestandsstructuur
 
@@ -46,6 +46,7 @@ manifest-regie.json — PWA manifest regischerm
 - **GPS polling** + PositieStore voor positiedeling met regie
 - **SignalBus polling** elke 2,5s voor inkomende signalen
 - **Opname (v0.28)**: zolang er in de regie een opname loopt, schrijft de speler elke ~2 s een trackpunt weg in `aok_track` (alleen bij verplaatsing > 3 m, met een hartslag elke 30 s) en logt hij momenten in `aok_events`: opdracht getoond/voltooid/gefaald, bericht van de regie, van route af en terug op route. In de statusbalk staat dan een rode **REC**-indicator. Start/stopt via `opname_start` / `opname_stop` en via de instelling `opname_actief`, zodat een herlaadbeurt midden in een rit de opname hervat.
+- **Opname via een opdracht (v0.29)**: een opdracht met `opname_actie = 'start'` begint zelf een nieuwe opname (naam uit `opname_naam`), eentje met `'stop'` beëindigt hem. De speler regelt dat zonder tussenkomst van de regie, dus de opname start ook als de regie niet meekijkt.
 
 ### Regischerm (`regie.html`)
 - **PIN-beveiliging** (standaard 1234, instelbaar)
@@ -60,6 +61,7 @@ manifest-regie.json — PWA manifest regischerm
   - **Straf**: tekst bij mislukken / timer op
   - **Route bij succes**: kies route om te activeren na behalen
   - **Route bij falen**: kies route om te activeren na mislukken/timer
+  - **Opname** (v0.29): start of stop de opname zodra deze opdracht verschijnt, met optionele naam voor de nieuwe opname — zo begint de opname automatisch aan het begin van een opnamedag. Opdrachten met een opname-actie krijgen een badge in de lijst.
 - **Audio tab**: audiobestanden toevoegen (naam + URL), speel nu naar spelers
 - **💬 Berichten tab** (nieuw):
   - Vrij tekstveld + emoji-veld
@@ -128,6 +130,17 @@ CREATE TABLE IF NOT EXISTS aok_events (
 ```
 
 Zonder dit blok werkt de rest van de app gewoon; alleen de Opname-tab blijft dan leeg.
+
+### Ronde 5 — opname via een opdracht (v0.29)
+
+Twee kolommen op `aok_opdrachten` (het blok **"RONDE 5"** onderaan `supabase_setup.sql`, ook veilig om opnieuw te draaien):
+
+```sql
+ALTER TABLE aok_opdrachten ADD COLUMN IF NOT EXISTS opname_actie text;   -- NULL | 'start' | 'stop'
+ALTER TABLE aok_opdrachten ADD COLUMN IF NOT EXISTS opname_naam  text;   -- naam voor de nieuwe opname
+```
+
+Zonder deze kolommen werkt de rest; een opdracht met een opname-actie wordt dan opgeslagen zónder die optie (met een melding erbij).
 
 ## 🌐 Deployment
 

@@ -117,6 +117,34 @@ window.SettingsStore = {
   },
 };
 
+/* ---- Zet één instelling robuust (PATCH of POST) ----
+   SettingsStore.set werkt vanuit de cache; als een andere client de rij
+   heeft aangemaakt, ontbreekt die in de cache en zou een POST op de
+   UNIQUE-sleutel stuklopen. Deze helper kijkt eerst in de database. */
+window.zetInstelling = async function(sleutel, waarde) {
+  var strVal = String(waarde);
+  try {
+    var r = await fetch(SUPA_URL + '/rest/v1/aok_settings?select=*&sleutel=eq.' + encodeURIComponent(sleutel),
+      { headers: window.API._h() });
+    var rows = await r.json();
+    var row = (Array.isArray(rows) && rows.length) ? rows[0] : null;
+    if (row && row.id) {
+      await fetch(SUPA_URL + '/rest/v1/aok_settings?id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH', headers: window.API._h(),
+        body: JSON.stringify({ sleutel: sleutel, waarde: strVal }),
+      });
+    } else {
+      await fetch(SUPA_URL + '/rest/v1/aok_settings', {
+        method: 'POST', headers: window.API._h(),
+        body: JSON.stringify({ sleutel: sleutel, waarde: strVal }),
+      });
+    }
+    if (window.SettingsStore && window.SettingsStore._cache) {
+      window.SettingsStore._cache[sleutel] = { id: row ? row.id : undefined, sleutel: sleutel, waarde: strVal };
+    }
+  } catch (e) { console.warn('zetInstelling fout:', e); }
+};
+
 /* ---- Signal bus ---- */
 window.SignalBus = {
   _lastTs: Date.now(),

@@ -459,6 +459,7 @@ async function haalOpnameStatus() {
 
 function startOpname(id) {
   if (!id) return;
+  if (id === opnameId) return;   // loopt al (bijv. eigen signaal terug ontvangen)
   opnameId = id;
   laatsteTrackTs = 0;
   laatsteTrackPos = null;
@@ -473,6 +474,39 @@ function stopOpname() {
   laatsteTrackPos = null;
   var el = document.getElementById('rec-indicator');
   if (el) el.classList.add('hidden');
+}
+
+// Opname starten/stoppen vanuit een opdracht. De speler regelt dit zelf, dus
+// de opname begint ook als de regie op dat moment niet meekijkt.
+async function startNieuweOpname(naam) {
+  try {
+    var op = await API.post('aok_opnames', {
+      naam: naam,
+      gestart: new Date().toISOString(),
+      bron: 'speler',
+    });
+    if (!op || !op.id) throw new Error('geen id terug');
+    await zetInstelling('opname_actief', op.id);
+    startOpname(op.id);
+    SignalBus.send('opname_start', { id: op.id, naam: naam, bron: 'speler' });
+    logMoment('opname_start', 'Opname gestart', naam);
+  } catch(e) {
+    console.warn('Opname starten mislukt:', e);
+  }
+}
+
+async function stopNieuweOpname() {
+  var id = opnameId;
+  if (!id) return;
+  logMoment('opname_stop', 'Opname gestopt', '');   // nog binnen de opname loggen
+  stopOpname();
+  try {
+    await API.patch('aok_opnames', id, { gestopt: new Date().toISOString() });
+    await zetInstelling('opname_actief', '');
+    SignalBus.send('opname_stop', { id: id, bron: 'speler' });
+  } catch(e) {
+    console.warn('Opname stoppen mislukt:', e);
+  }
 }
 
 // Niet elk GPS-punt wegschrijven: hooguit één per 2 seconden, en alleen bij
@@ -1202,6 +1236,13 @@ function showOpdracht(o) {
   document.getElementById('opdracht-overlay').classList.remove('hidden');
   SignalBus.send('opdracht_gezien', { id: o.id, timestamp: Date.now() });
   logMoment('opdracht', o.titel || 'Opdracht', o.tekst || '');
+
+  // Opdracht kan een opname starten of stoppen (begin/einde van een opnamedag)
+  if (o.opname_actie === 'start' && !opnameId) {
+    startNieuweOpname(o.opname_naam || ('Opdracht: ' + (o.titel || 'opname')));
+  } else if (o.opname_actie === 'stop' && opnameId) {
+    stopNieuweOpname();
+  }
 
   if (!ontvangen.find(function(x) { return x.id === o.id; })) {
     ontvangen.push({ id: o.id, titel: o.titel, tekst: o.tekst, status: 'ontvangen', _data: o });

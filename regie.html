@@ -265,6 +265,21 @@
             <select id="op-audio-falen"><option value="">— Geen audio —</option></select>
           </div>
 
+          <h4 class="extra-velden-titel">🎬 Opname</h4>
+          <div class="form-row">
+            <label>Opname bij deze opdracht</label>
+            <select id="op-opname-actie">
+              <option value="">— Niets doen —</option>
+              <option value="start">● Opname starten zodra deze opdracht verschijnt</option>
+              <option value="stop">■ Opname stoppen zodra deze opdracht verschijnt</option>
+            </select>
+            <p class="hint">Zo begint de opname automatisch aan het begin van de dag: maak een opdracht met trigger “locatie” of “tijd” op dat moment.</p>
+          </div>
+          <div class="form-row" id="op-opname-naam-wrap" style="display:none">
+            <label>Naam voor de nieuwe opname (optioneel)</label>
+            <input type="text" id="op-opname-naam" placeholder="bijv. Dag 1">
+          </div>
+
           <h4 class="extra-velden-titel">🗺️ Route na opdracht</h4>
           <div class="form-row">
             <label>Activeer route na succes</label>
@@ -1062,10 +1077,12 @@ function renderOpdrachtenList() {
     var icon = o.type === 'locatie' ? '📍' : o.type === 'tijd' ? '⏰' : '✋';
     var badge = o.status === 'voltooid' ? '<span class="badge-green">✓ Voltooid</span>' :
                 o.status === 'actief' ? '<span class="badge-blue">▶ Actief</span>' : '<span class="badge-grey">In wacht</span>';
+    var opnameBadge = o.opname_actie === 'start' ? ' <span class="badge-blue">● REC start</span>' :
+                      o.opname_actie === 'stop'  ? ' <span class="badge-grey">■ REC stop</span>' : '';
     var tekst = o.tekst ? o.tekst.substring(0, 80) + (o.tekst.length > 80 ? '…' : '') : '';
     return '<div class="item-card">' +
       '<div class="item-info"><strong>' + icon + ' ' + escHtml(o.titel || '—') + '</strong>' +
-      '<small>' + escHtml(tekst) + '</small>' + badge + '</div>' +
+      '<small>' + escHtml(tekst) + '</small>' + badge + opnameBadge + '</div>' +
       '<div class="item-actions">' +
       '<button class="btn-sm btn-oranje" onclick="stuurOpdrachtDirect(\'' + o.id + '\')">📤 Stuur nu</button>' +
       '<button class="btn-sm btn-rood" onclick="verwijderOpdracht(\'' + o.id + '\')">🗑️</button>' +
@@ -1147,6 +1164,9 @@ function bindOpdrachtUI() {
     document.getElementById('op-audio-falen').value = '';
     document.getElementById('op-route-succes').value = '';
     document.getElementById('op-route-falen').value = '';
+    document.getElementById('op-opname-actie').value = '';
+    document.getElementById('op-opname-naam').value = '';
+    document.getElementById('op-opname-naam-wrap').style.display = 'none';
     document.getElementById('op-timer-start-wrap').style.opacity = '0.4';
     setOpType('locatie');
     updateRouteSelectsInForm();
@@ -1205,6 +1225,10 @@ function bindOpdrachtUI() {
   document.getElementById('op-timer').addEventListener('input', function() {
     var heeft = parseInt(this.value) > 0;
     document.getElementById('op-timer-start-wrap').style.opacity = heeft ? '1' : '0.4';
+  });
+  // Naamveld alleen tonen als de opdracht een opname start
+  document.getElementById('op-opname-actie').addEventListener('change', function() {
+    document.getElementById('op-opname-naam-wrap').style.display = this.value === 'start' ? '' : 'none';
   });
 }
 
@@ -1273,50 +1297,49 @@ async function slaOpdrachtOp() {
   var audioFalen = document.getElementById('op-audio-falen').value;
   if (audioFalen) body.audio_falen = audioFalen;
 
-  // ── Kolommen die pas bestaan na de DO $$ upgrade in Supabase ──
-  var RONDE2_KOLOMMEN = ['timer_seconden','timer_stopbaar','stop_bij_locatie','stop_lat','stop_lon','stop_straal',
-                         'beloning','straf','route_bij_succes','route_bij_falen'];
-  var RONDE3_KOLOMMEN = ['timer_start','timer_vertraging','stopwatch',
-                         'audio_succes','audio_falen','voltooiing_modus'];
-
-  function isPGRST204(r) {
-    return r && (r.code === 'PGRST204' || (r.error && r.error.code === 'PGRST204'));
-  }
-  function errMsg(r) {
-    return (r.error && r.error.message) || r.message || JSON.stringify(r);
-  }
-  function stripKeys(obj, keys) {
-    var o = Object.assign({}, obj);
-    keys.forEach(function(k) { delete o[k]; });
-    return o;
+  // ── Opname starten/stoppen vanuit deze opdracht (ronde 5) ──
+  var opnameActie = document.getElementById('op-opname-actie').value;
+  if (opnameActie === 'start') {
+    body.opname_actie = 'start';
+    var opnameNaam = document.getElementById('op-opname-naam').value.trim();
+    if (opnameNaam) body.opname_naam = opnameNaam;
+  } else if (opnameActie === 'stop') {
+    body.opname_actie = 'stop';
   }
 
   try {
-    // Poging 1: volledig body
-    var r1 = await API.post('aok_opdrachten', body);
-    if (isPGRST204(r1)) {
-      // Poging 2: zonder ronde-3 kolommen
-      var body2 = stripKeys(body, RONDE3_KOLOMMEN);
-      var r2 = await API.post('aok_opdrachten', body2);
-      if (isPGRST204(r2)) {
-        // Poging 3: ook zonder ronde-2 kolommen (allerbasisst)
-        var body3 = stripKeys(body2, RONDE2_KOLOMMEN);
-        var r3 = await API.post('aok_opdrachten', body3);
-        if (r3 && (r3.error || r3.code)) throw new Error(errMsg(r3));
-        toast('✅ Basis opgeslagen — run de Supabase upgrade voor extra kolommen', 'info');
-      } else if (r2 && (r2.error || r2.code)) {
-        throw new Error(errMsg(r2));
-      } else {
-        toast('✅ Opgeslagen (ronde-3 kolommen nog niet in DB — run de upgrade)', 'info');
-      }
-    } else if (r1 && (r1.error || r1.code)) {
-      throw new Error(errMsg(r1));
+    var resultaat = await slaOpMetTerugval(body);
+    if (resultaat.vervallen.length) {
+      toast('✅ Opgeslagen, maar niet bewaard: ' + resultaat.vervallen.join(', ') +
+            ' — draai het SQL-upgradeblok in Supabase', 'info');
     } else {
       toast('✅ Opdracht opgeslagen');
     }
     document.getElementById('opdracht-form-wrap').classList.add('hidden');
     loadOpdrachten();
   } catch(e) { toast('Opslaan mislukt: ' + e.message, 'warn'); }
+}
+
+// API.post gooit een Error bij een HTTP-fout, waardoor de oude PGRST204-keten
+// nooit in actie kwam. Deze helper leest de fouttekst en probeert het opnieuw
+// zonder de kolommen die de database nog niet heeft.
+async function slaOpMetTerugval(body) {
+  var huidig = Object.assign({}, body);
+  var vervallen = [];
+  for (var poging = 0; poging < 6; poging++) {
+    try {
+      await API.post('aok_opdrachten', huidig);
+      return { vervallen: vervallen };
+    } catch(e) {
+      var tekst = String((e && e.message) ? e.message : e);
+      var ontbrekend = Object.keys(huidig).filter(function(k) {
+        return tekst.indexOf("'" + k + "'") !== -1;
+      });
+      if (!ontbrekend.length) throw e;
+      ontbrekend.forEach(function(k) { delete huidig[k]; vervallen.push(k); });
+    }
+  }
+  throw new Error('opslaan lukte niet');
 }
 
 function updateRouteSelectsInForm() {
@@ -1674,24 +1697,36 @@ async function startOpnameRegie() {
   try {
     var op = await API.post('aok_opnames', { naam: naam, gestart: new Date().toISOString(), bron: 'regie' });
     if (!op || !op.id) throw new Error('geen id terug');
-    await SettingsStore.set('opname_actief', op.id);
+    await zetInstelling('opname_actief', op.id);
     SignalBus.send('opname_start', { id: op.id, naam: naam });
     document.getElementById('opname-naam').value = '';
     laatstePuntTs = 0;
     toast('● Opname gestart: ' + naam);
     await loadOpnames();
-  } catch(e) { toast('Starten mislukt: ' + e.message, 'warn'); }
+  } catch(e) { toast(uitlegDbFout(e, 'starten'), 'warn'); }
+}
+
+// Maakt van een databasefout een begrijpelijke melding (bijv. tabel ontbreekt).
+function uitlegDbFout(e, actie) {
+  var m = String((e && e.message) ? e.message : e);
+  if (m.indexOf('PGRST205') !== -1 || m.indexOf('aok_opnames') !== -1) {
+    return 'Tabel aok_opnames ontbreekt nog — draai het SQL-blok uit supabase_setup.sql';
+  }
+  if (m.indexOf('PGRST204') !== -1) {
+    return 'Kolom ontbreekt in de database — draai het SQL-upgradeblok uit supabase_setup.sql';
+  }
+  return 'Opname ' + actie + ' mislukt: ' + m.substring(0, 140);
 }
 
 async function stopOpnameRegie() {
   if (!actieveOpnameId) { toast('Er loopt geen opname', 'warn'); return; }
   try {
     await API.patch('aok_opnames', actieveOpnameId, { gestopt: new Date().toISOString() });
-    await SettingsStore.set('opname_actief', '');
+    await zetInstelling('opname_actief', '');
     SignalBus.send('opname_stop', {});
     toast('■ Opname gestopt');
     await loadOpnames();
-  } catch(e) { toast('Stoppen mislukt: ' + e.message, 'warn'); }
+  } catch(e) { toast(uitlegDbFout(e, 'stoppen'), 'warn'); }
 }
 
 window.verwijderOpname = async function(id) {
@@ -1699,7 +1734,7 @@ window.verwijderOpname = async function(id) {
   try {
     await API.del('aok_opnames', id);
     if (actieveOpnameId === id) {
-      await SettingsStore.set('opname_actief', '');
+      await zetInstelling('opname_actief', '');
       SignalBus.send('opname_stop', {});
     }
     if (geladenOpname && geladenOpname.id === id) {
@@ -1984,7 +2019,7 @@ function verbergExportOverlay() {
 function exporteerJSON() {
   if (!geladenOpname || !trackPunten.length) { toast('Laad eerst een opname', 'warn'); return; }
   var data = {
-    versie: 'v0.28',
+    versie: 'v0.29',
     geexporteerd: new Date().toISOString(),
     opname: {
       id: geladenOpname.id,
@@ -2182,6 +2217,10 @@ function bindOpnameUI() {
     if (exportBezig) return;
     await haalActieveOpname();
     if (actieveOpnameId) {
+      // Een opdracht op de speler kan een nieuwe opname zijn begonnen
+      if (!opnamesLijst.some(function(o) { return o.id === actieveOpnameId; })) {
+        await loadOpnames();
+      }
       try {
         var r = await API.get('aok_track', 'opname_id=eq.' + actieveOpnameId + '&order=ts.desc&limit=1');
         var laatste = (r.data || [])[0];
