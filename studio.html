@@ -221,13 +221,19 @@
             <p class="hint">Komt rechtsonder in beeld, niet meedraaiend met de kaart.</p>
           </div>
           <div class="blok">
-            <h4>Kaart</h4>
-            <div class="rij">
-              <label>Terrein</label>
-              <label style="min-width:auto;display:flex;align-items:center;gap:0.35rem;font-size:0.74rem;color:#cbd5e1">
-                <input type="checkbox" id="kaart-terrein"> 3D-hoogte aan
-              </label>
+            <h4>3D-kaart</h4>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.76rem;color:#cbd5e1">
+              <input type="checkbox" id="kaart-terrein"> Terrein met hoogte (bergen, dijken)
+            </label>
+            <div class="rij" id="kaart-terrein-rij" style="display:none">
+              <label>Hoogte</label>
+              <input type="range" id="kaart-hoogte" min="1" max="3" step="0.1" value="2">
+              <span class="waarde" id="kaart-hoogte-w">×2,0</span>
             </div>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.76rem;color:#cbd5e1;margin-top:0.45rem">
+              <input type="checkbox" id="kaart-gebouwen"> Losse gebouwen in 3D
+            </label>
+            <p class="hint">Alleen in de Studio — de kaart van de spelers blijft plat. Nederland is vlak: zet de hoogte op ×2 of ×3 om dijken en heuvels echt te zien.</p>
             <div class="knoppenrij">
               <button class="knop" id="btn-pas-in">Pas baan in beeld</button>
               <button class="knop" id="btn-3d">3D-stand (schuin)</button>
@@ -252,15 +258,17 @@
             </div>
             <div class="rij"><label>Bitrate</label>
               <select id="export-bitrate">
-                <option value="0.08">Normaal</option>
-                <option value="0.14" selected>Hoog</option>
-                <option value="0.22">Zeer hoog</option>
+                <option value="0.2">Normaal</option>
+                <option value="0.35">Hoog</option>
+                <option value="0.55" selected>Zeer hoog</option>
+                <option value="0.8">Maximaal</option>
               </select>
             </div>
+            <p class="hint" id="export-bitrate-hint">—</p>
             <div class="knoppenrij">
               <button class="knop groen" id="btn-export">🎬 Exporteer WebM</button>
             </div>
-            <p class="hint">De opname gebeurt in reële tijd: een animatie van 2 minuten duurt ook 2 minuten. Laat dit venster openstaan.</p>
+            <p class="hint">De opname gebeurt in reële tijd: een animatie van 2 minuten duurt ook 2 minuten. Laat dit venster openstaan. Met 3D-hoogte en 3D-gebouwen aan kan de export langer duren.</p>
           </div>
           <div class="blok">
             <h4>Project</h4>
@@ -347,6 +355,7 @@ function leegProject() {
     weergave: { routeId: '', routeTonen: false, nav: false, meldingen: true, meldingDuur: 6 },
     pin: { soort: 'stip', png: '', size: 0.45, draaien: true },
     vlaggen: { aan: true },
+    kaart: { terrein: false, gebouwen: false, hoogte: 2 },
   };
 }
 var project = leegProject();
@@ -443,6 +452,19 @@ function initMap() {
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     map.on('load', function() {
+      // Boven de horizon laat MapLibre de kaart leeg (transparant). De
+      // lucht en de nevelband tekenen we zelf in de compositie, zodat het
+      // beeld er in de preview en in de export precies hetzelfde uitziet.
+
+      // Hoogtebron: nodig voor terrein en voor de hellinglaag hieronder.
+      map.addSource('terrain-dem', {
+        type: 'raster-dem',
+        tiles: [TERREIN_TEGELS],
+        encoding: 'terrarium',
+        tileSize: 256,
+        maxzoom: 15,
+      });
+
       map.addSource('st-track', { type: 'geojson', data: leegLijn() });
       map.addLayer({ id: 'st-track-bg', type: 'line', source: 'st-track',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -494,9 +516,50 @@ function initMap() {
         },
       });
 
+      try {
+        var eersteSymbool = null;
+        map.getStyle().layers.forEach(function(l) {
+          if (!eersteSymbool && l.type === 'symbol') eersteSymbool = l.id;
+        });
+
+        // Helling (hillshade): maakt hoogteverschil zichtbaar als reliëf.
+        // Vooral in vlak Nederland zie je dijken en kades anders amper.
+        map.addLayer({
+          id: 'st-helling',
+          type: 'hillshade',
+          source: 'terrain-dem',
+          layout: { 'visibility': 'none' },
+          paint: {
+            'hillshade-exaggeration': 0.45,
+            'hillshade-shadow-color': 'rgba(74,56,32,0.75)',
+            'hillshade-highlight-color': 'rgba(255,249,232,0.55)',
+            'hillshade-accent-color': 'rgba(140,110,70,0.45)',
+          },
+        }, eersteSymbool || undefined);
+
+        // Losse gebouwen als 3D-blokken (OpenMapTiles render_height).
+        // Alleen hier in de Studio; de spelerskaart gebruikt deze stijl niet.
+        map.addLayer({
+          id: 'st-gebouwen-3d',
+          type: 'fill-extrusion',
+          source: 'ofm',
+          'source-layer': 'building',
+          minzoom: 14,
+          layout: { 'visibility': 'none' },
+          paint: {
+            'fill-extrusion-color': ['coalesce', ['get', 'colour'], '#cbbda4'],
+            'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 4],
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+            'fill-extrusion-opacity': 0.92,
+            'fill-extrusion-vertical-gradient': true,
+          },
+        }, eersteSymbool || undefined);
+      } catch(e) { console.warn('3D-gebouwen:', e); }
+
       map.on('render', renderTick);
       tekenRoute();
       tekenAlles();
+      pasKaartToe();   // projectstand van terrein/gebouwen toepassen
 
       // Afbeeldingen voor vlaggen en pin (canvas → PNG, want addImage wil een
       // echte afbeelding en geen canvas)
@@ -667,6 +730,8 @@ function laadProject() {
   project.vlaggen = Object.assign({ aan: true }, project.vlaggen || {});
   $('pin-soort').value = project.pin.soort || 'stip';
   $('route-vlaggen').checked = project.vlaggen.aan !== false;
+  project.kaart = Object.assign({ terrein: false, gebouwen: false, hoogte: 2 }, project.kaart || {});
+  pasKaartToe();
   pasPinToe();
   tekenVlaggen();
 
@@ -857,7 +922,10 @@ function zetSpelen(aan) {
 
 function frameLoop(nu) {
   if (!speelt) return;
-  var dt = Math.min(500, nu - laatsteFrameTijd);
+  // Tijdens de export de echte verstreken tijd gebruiken: anders loopt de
+  // klok achter op de opname en wordt de video te langzaam (slow motion).
+  var dt = nu - laatsteFrameTijd;
+  if (!exportModus) dt = Math.min(500, dt);
   laatsteFrameTijd = nu;
   // In videotijd loopt de klok altijd 1 seconde per seconde; de
   // snelheidsmarkers bepalen hoeveel wereldtijd daarbij hoort.
@@ -1761,11 +1829,71 @@ function renderTick() {
   tekenMonitor();
 }
 
+// Zelfde kleuren als de luchtlaag in de kaart. Dient als ondergrond zodat
+// een schuine stand nooit een wit vlak oplevert, ook niet bij export.
+function luchtVerloop(ctx, W, H) {
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#6695bb');
+  g.addColorStop(0.55, '#aac3d2');
+  g.addColorStop(1, '#d9c9ae');
+  return g;
+}
+
+// Waar houdt de kaart op en begint de lucht? MapLibre laat de ruimte boven
+// de horizon leeg (transparant); die grens zoeken we op in een klein
+// proefbeeldje, zodat we er een zachte nevelband over kunnen leggen.
+var horizonProef = { canvas: null, pitch: -1, fractie: null };
+
+function horizonFractie() {
+  if (!map) return null;
+  if (map.getPitch() < 66) return null;
+  var p = Math.round(map.getPitch() * 4) / 4;
+  if (horizonProef.pitch === p) return horizonProef.fractie;
+
+  if (!horizonProef.canvas) {
+    horizonProef.canvas = document.createElement('canvas');
+    horizonProef.canvas.width = 64;
+    horizonProef.canvas.height = 36;
+  }
+  var kx = horizonProef.canvas.getContext('2d');
+  kx.clearRect(0, 0, 64, 36);
+  try { kx.drawImage(map.getCanvas(), 0, 0, 64, 36); } catch(e) { return null; }
+  var d = kx.getImageData(0, 0, 64, 36).data;
+  var fractie = null;
+  for (var r = 0; r < 36; r++) {
+    var zichtbaar = 0;
+    for (var x = 0; x < 64; x++) if (d[(r * 64 + x) * 4 + 3] > 8) zichtbaar++;
+    if (zichtbaar > 32) { fractie = r / 36; break; }
+  }
+  horizonProef.pitch = p;
+  horizonProef.fractie = fractie;
+  return fractie;
+}
+
+function tekenHorizonNevel(ctx, W, H) {
+  var f = horizonFractie();
+  if (f === null) return;
+  var hy = f * H;
+  var band = Math.max(24, H * 0.16);
+  var g = ctx.createLinearGradient(0, hy - band * 0.45, 0, hy + band);
+  g.addColorStop(0, 'rgba(217,201,174,0)');
+  g.addColorStop(0.30, 'rgba(217,201,174,0.38)');
+  g.addColorStop(0.34, 'rgba(217,201,174,0.62)');
+  g.addColorStop(0.62, 'rgba(217,201,174,0.22)');
+  g.addColorStop(1, 'rgba(217,201,174,0)');
+  ctx.save();
+  ctx.fillStyle = g;
+  ctx.fillRect(0, Math.max(0, hy - band * 0.45), W, band * 1.45);
+  ctx.restore();
+}
+
 function tekenCompositie() {
   if (!compCtx || !map) return;
   var W = compCanvas.width, H = compCanvas.height;
-  compCtx.clearRect(0, 0, W, H);
+  compCtx.fillStyle = luchtVerloop(compCtx, W, H);
+  compCtx.fillRect(0, 0, W, H);
   try { compCtx.drawImage(map.getCanvas(), 0, 0, W, H); } catch(e) { return; }
+  tekenHorizonNevel(compCtx, W, H);
   tekenOverlays(compCtx, W, H);
 }
 
@@ -1793,13 +1921,15 @@ function tekenMonitor() {
   if (mh > H) { mh = H; mw = H * aspect; }
   var ox = (W - mw) / 2, oy = (H - mh) / 2;
 
-  try { ctx.drawImage(map.getCanvas(), ox, oy, mw, mh); } catch(e) {}
-
   ctx.save();
   ctx.translate(ox, oy);
   ctx.beginPath();
   ctx.rect(0, 0, mw, mh);
   ctx.clip();
+  ctx.fillStyle = luchtVerloop(ctx, mw, mh);
+  ctx.fillRect(0, 0, mw, mh);
+  try { ctx.drawImage(map.getCanvas(), 0, 0, mw, mh); } catch(e) {}
+  tekenHorizonNevel(ctx, mw, mh);
   tekenOverlays(ctx, mw, mh);
   ctx.restore();
 
@@ -1809,6 +1939,17 @@ function tekenMonitor() {
 }
 
 /* ─── EXPORT ────────────────────────────────────────────────────────── */
+function werkExportHint() {
+  var el = $('export-bitrate-hint');
+  if (!el) return;
+  var res = $('export-resolutie').value.split('x');
+  var W = parseInt(res[0], 10) || 1920, H = parseInt(res[1], 10) || 1080;
+  var fps = parseInt($('export-fps').value, 10) || 30;
+  var f = parseFloat($('export-bitrate').value) || 0.55;
+  var mbps = (W * H * fps * f) / 1e6;
+  el.textContent = 'Ongeveer ' + Math.round(mbps) + ' Mbps · ' + W + '×' + H + ' bij ' + fps + ' fps. Hoger = scherper en groter.';
+}
+
 async function exporteerVideo() {
   if (exportModus) return;
   if (!opname || !punten.length) { toast('Kies eerst een opname'); return; }
@@ -1820,7 +1961,7 @@ async function exporteerVideo() {
   var res = $('export-resolutie').value.split('x');
   var W = parseInt(res[0], 10), H = parseInt(res[1], 10);
   var fps = parseInt($('export-fps').value, 10) || 30;
-  var bitrateFactor = parseFloat($('export-bitrate').value) || 0.14;
+  var bitrateFactor = parseFloat($('export-bitrate').value) || 0.55;
   var dpr = window.devicePixelRatio || 1;
 
   zetSpelen(false);
@@ -1841,10 +1982,23 @@ async function exporteerVideo() {
   map.resize();
   await wacht(450);
 
+  // Zorg dat de kaart echt op de exportresolutie rendert (anders wordt het
+  // beeld opgeschaald en ziet het er zacht uit).
+  try {
+    var mc = map.getCanvas();
+    if (mc.width && Math.abs(mc.width - W) > 2) {
+      var factor = W / mc.width;
+      kaartEl.style.width = Math.round((W / dpr) * factor) + 'px';
+      kaartEl.style.height = Math.round((H / dpr) * factor) + 'px';
+      map.resize();
+      await wacht(300);
+    }
+  } catch(e) { console.warn('export-resolutie:', e); }
+
   compCanvas = document.createElement('canvas');
   compCanvas.width = W;
   compCanvas.height = H;
-  compCtx = compCanvas.getContext('2d');
+  compCtx = compCanvas.getContext('2d', { alpha: false });
 
   var stream = compCanvas.captureStream(0);
   recorderTrack = stream.getVideoTracks()[0];
@@ -1940,7 +2094,7 @@ function downloadBestand(inhoud, naam, mime) {
 function exporteerProjectJSON() {
   if (!opname) { toast('Kies eerst een opname'); return; }
   var data = {
-    versie: 'v0.32',
+    versie: 'v0.33',
     soort: 'aok-studio-project',
     opname: { id: opname.id, naam: opname.naam, gestart: opname.gestart, gestopt: opname.gestopt },
     tijdbasis: { start_ms: beginTs, eind_ms: eindTs },
@@ -1981,6 +2135,8 @@ function importeerProjectJSON(bestand) {
       project.vlaggen = Object.assign({ aan: true }, project.vlaggen || {});
       $('pin-soort').value = project.pin.soort || 'stip';
       $('route-vlaggen').checked = project.vlaggen.aan !== false;
+      project.kaart = Object.assign({ terrein: false, gebouwen: false, hoogte: 2 }, project.kaart || {});
+      pasKaartToe();
       pasPinToe();
       tekenVlaggen();
 
@@ -2178,7 +2334,25 @@ function bindUI() {
   });
   $('btn-logo-weg').addEventListener('click', function() { zetLogo(''); bewaarProject(); });
 
-  $('kaart-terrein').addEventListener('change', function() { zetTerrein(this.checked); });
+  $('kaart-terrein').addEventListener('change', function() {
+    project.kaart.terrein = this.checked;
+    bewaarProject();
+    pasKaartToe();
+    verversBeeld();
+  });
+  $('kaart-gebouwen').addEventListener('change', function() {
+    project.kaart.gebouwen = this.checked;
+    bewaarProject();
+    pasKaartToe();
+    verversBeeld();
+  });
+  $('kaart-hoogte').addEventListener('input', function() {
+    project.kaart.hoogte = Number(this.value);
+    $('kaart-hoogte-w').textContent = '×' + Number(this.value).toFixed(1).replace('.', ',');
+    bewaarProject();
+    zetTerrein(project.kaart.terrein);
+    verversBeeld();
+  });
   $('btn-pas-in').addEventListener('click', pasBaanInBeeld);
   $('btn-3d').addEventListener('click', function() {
     if (!map) return;
@@ -2187,7 +2361,10 @@ function bindUI() {
 
   // Export
   $('btn-export').addEventListener('click', exporteerVideo);
-  $('export-resolutie').addEventListener('change', verversBeeld);
+  $('export-resolutie').addEventListener('change', function() { werkExportHint(); verversBeeld(); });
+  $('export-fps').addEventListener('change', werkExportHint);
+  $('export-bitrate').addEventListener('change', werkExportHint);
+  werkExportHint();
   $('btn-project-json').addEventListener('click', exporteerProjectJSON);
   $('btn-project-opslaan').addEventListener('click', function() {
     bewaarProject();
@@ -2202,28 +2379,55 @@ function bindUI() {
 }
 
 /* ─── 3D TERREIN ────────────────────────────────────────────────────── */
+/* ─── 3D-KAART (alleen Studio) ────────────────────────────────────────
+   Terrein komt uit de open terrarium-hoogtemozaïek (AWS elevation-tiles),
+   maxzoom 15 zodat ook dijken en kades zichtbaar zijn. De spelerskaart
+   gebruikt kaart-stijl.json en blijft plat: deze lagen zitten alleen hier. */
+var TERREIN_TEGELS = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
 function zetTerrein(aan) {
   if (!map) return;
+  var k = project.kaart || (project.kaart = { terrein: false, gebouwen: false, hoogte: 2 });
   try {
     if (aan) {
       if (!map.getSource('terrain-dem')) {
         map.addSource('terrain-dem', {
           type: 'raster-dem',
-          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+          tiles: [TERREIN_TEGELS],
           encoding: 'terrarium',
           tileSize: 256,
-          maxzoom: 12,
+          maxzoom: 15,
         });
       }
-      map.setTerrain({ source: 'terrain-dem', exaggeration: 1.4 });
-      toast('3D-hoogte aan');
+      var hoogte = Math.max(1, Math.min(3, Number(k.hoogte) || 2));
+      map.setTerrain({ source: 'terrain-dem', exaggeration: hoogte });
     } else {
       map.setTerrain(null);
-      toast('3D-hoogte uit');
     }
   } catch(e) {
+    console.warn('Terrein:', e);
     toast('Terrein kon niet geladen worden');
   }
+  if (map.getLayer('st-helling')) {
+    map.setLayoutProperty('st-helling', 'visibility', aan ? 'visible' : 'none');
+  }
+  var rij = $('kaart-terrein-rij');
+  if (rij) rij.style.display = aan ? 'flex' : 'none';
+}
+
+function zetGebouwen3d(aan) {
+  if (!map || !map.getLayer('st-gebouwen-3d')) return;
+  map.setLayoutProperty('st-gebouwen-3d', 'visibility', aan ? 'visible' : 'none');
+}
+
+function pasKaartToe() {
+  var k = project.kaart || (project.kaart = { terrein: false, gebouwen: false, hoogte: 2 });
+  if ($('kaart-terrein')) $('kaart-terrein').checked = !!k.terrein;
+  if ($('kaart-gebouwen')) $('kaart-gebouwen').checked = !!k.gebouwen;
+  if ($('kaart-hoogte')) $('kaart-hoogte').value = Number(k.hoogte) || 2;
+  if ($('kaart-hoogte-w')) $('kaart-hoogte-w').textContent = '×' + (Number(k.hoogte) || 2).toFixed(1).replace('.', ',');
+  zetTerrein(!!k.terrein);
+  zetGebouwen3d(!!k.gebouwen);
 }
 
 /* ─── TEKEN ALLES ───────────────────────────────────────────────────── */
