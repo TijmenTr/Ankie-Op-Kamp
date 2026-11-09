@@ -2,7 +2,7 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
-**Versie:** v0.33 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+**Versie:** v0.34 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
 
 ## 🗂️ Bestandsstructuur
 
@@ -101,10 +101,11 @@ Aparte console voor het maken van de kaartanimatie. Bereikbaar via de knop **�
 - **Hologrammen (PNG)**: losse PNG-objecten in de kaart, met schuifjes voor grootte, draaiing en doorzichtigheid. Klik op de kaart om ze te verplaatsen. Wordt in het project bewaard, dus later aanpasbaar.
 - **Beeld**: titel + subtitel linksonder, optioneel datum/tijd linksboven en een PNG-logo rechtsonder — alle drie worden bij de export in het beeld gebrand.
 - **3D-kaart (alleen in de Studio)**: twee schakelaars onder **Beeld → 3D-kaart**:
-- **Terrein met hoogte** — echte hoogtedata (open DEM-tiles, tot zoom 15) zodat heuvels, dalen en dijken als 3D-reliëf in de kaart staan, met een **hoogteslider ×1–×3** en een subtiele hellinglaag zodat het reliëf ook bij fel licht zichtbaar blijft. Nederland is vlak: ×2 of ×3 maakt dijken pas echt zichtbaar.
-- **Losse gebouwen in 3D** — gebouwen worden echte blokken met hun hoogte uit de kaartdata (zichtbaar vanaf zoom 14).
+  - **Terrein met hoogte** — echte hoogtedata (open DEM-tiles, tot zoom 15) zodat heuvels en dalen als 3D-reliëf in de kaart staan, met een **hoogteslider ×1–×5** en een subtiele hellinglaag zodat het reliëf ook bij fel licht zichtbaar blijft. **×1 is de echte hoogte**, hoger is overdrijven.
+    Let op: de vrij beschikbare wereldwijde hoogtedata is ±30 m nauwkeurig. Grote heuvels en dalen kloppen daarmee, maar een dijk van een paar meter valt binnen die marge — die wordt dus platgeslagen of juist als zachte bult weergegeven. Met overdrijven worden die onnauwkeurigheden uitvergroot. Voor echt scherpe dijken is het Nederlandse AHN (0,5 m, open data) nodig; dat is alleen als grote GeoTIFF/WMTS beschikbaar en niet als kant-en-klare hoogtetegels.
+  - **Losse gebouwen in 3D** — gebouwen worden echte blokken met hun hoogte uit de kaartdata (zichtbaar vanaf zoom 14). De platte gebouwlaag gaat dan uit en verborgen 3D-delen worden overgeslagen, zodat de blokken niet door elkaar heen tekenen.
   Beide staan **alleen** in de Studio; de kaart van de spelers (`kaart-stijl.json`) blijft plat en ongewijzigd. De stand wordt per opname in het project bewaard.
-- **Lucht en horizon**: bij een schuine stand (vanaf ±66°) vult de Studio de lege ruimte boven de horizon met een luchtverloop en een zachte nevelband op de horizon, zodat er nooit een wit vlak in beeld of in de export staat.
+- **Lucht en horizon**: bij een schuine stand (vanaf ±66°) vult de Studio de lege ruimte boven de horizon met een luchtverloop dat onderaan de kleur van het land overneemt. Zo loopt het beeld naadloos over, zonder witte vlakken en zonder waas over gebouwen heen.
 - **Kaart**: **3D-stand (schuin)**, **Pas baan in beeld**.
 - **Export**: WebM in 720p/1080p/1440p/4K bij 30 of 60 fps en vier bitrates (Normaal tot Maximaal, standaard Zeer hoog ≈ 34 Mbps op 1080p30). Het exportbeeld rendert op de volle resolutie en de bitrate-hint toont wat je kiest. De export gebeurt in reële tijd (een animatie van 2 minuten duurt ook 2 minuten); met 3D-hoogte en gebouwen aan kan het langer duren.
 - **Project**: camera-keyframes, tempo, pin, vlaggen, hologrammen en titel worden automatisch per opname in de browser bewaard (`localStorage`) en zijn te downloaden/openen als JSON-bestand. Projecten van vóór v0.32 worden bij het openen automatisch omgezet naar het nieuwe tijdsmodel.

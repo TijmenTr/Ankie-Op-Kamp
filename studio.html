@@ -227,13 +227,13 @@
             </label>
             <div class="rij" id="kaart-terrein-rij" style="display:none">
               <label>Hoogte</label>
-              <input type="range" id="kaart-hoogte" min="1" max="3" step="0.1" value="2">
-              <span class="waarde" id="kaart-hoogte-w">×2,0</span>
+              <input type="range" id="kaart-hoogte" min="1" max="5" step="0.1" value="1">
+              <span class="waarde" id="kaart-hoogte-w">×1,0 (echt)</span>
             </div>
             <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.76rem;color:#cbd5e1;margin-top:0.45rem">
               <input type="checkbox" id="kaart-gebouwen"> Losse gebouwen in 3D
             </label>
-            <p class="hint">Alleen in de Studio — de kaart van de spelers blijft plat. Nederland is vlak: zet de hoogte op ×2 of ×3 om dijken en heuvels echt te zien.</p>
+            <p class="hint">Alleen in de Studio — de kaart van de spelers blijft plat. ×1 is de echte hoogte; hoger is overdrijven om reliëf zichtbaar te maken. De hoogtedata is ±30 m nauwkeurig, dus kleine dijken vallen daarbinnen weg.</p>
             <div class="knoppenrij">
               <button class="knop" id="btn-pas-in">Pas baan in beeld</button>
               <button class="knop" id="btn-3d">3D-stand (schuin)</button>
@@ -355,7 +355,7 @@ function leegProject() {
     weergave: { routeId: '', routeTonen: false, nav: false, meldingen: true, meldingDuur: 6 },
     pin: { soort: 'stip', png: '', size: 0.45, draaien: true },
     vlaggen: { aan: true },
-    kaart: { terrein: false, gebouwen: false, hoogte: 2 },
+    kaart: { terrein: false, gebouwen: false, hoogte: 1 },
   };
 }
 var project = leegProject();
@@ -545,12 +545,19 @@ function initMap() {
           source: 'ofm',
           'source-layer': 'building',
           minzoom: 14,
+          // hide_3d = delen die de kaartmaker zelf al in een ander gebouw
+          // onderbrengt; die mogen niet als los blok mee.
+          filter: ['!=', ['to-boolean', ['get', 'hide_3d']], true],
           layout: { 'visibility': 'none' },
           paint: {
-            'fill-extrusion-color': ['coalesce', ['get', 'colour'], '#cbbda4'],
+            // Vaste warme kleur: sommige gebouwen hebben een (bijna) zwarte
+            // kleur in de data, en dat oogt als een gat in het beeld.
+            'fill-extrusion-color': '#b49a76',
             'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 4],
-            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-            'fill-extrusion-opacity': 0.92,
+            // Basis op de grond: losse gebouwdelen met een hoge base zweefden
+            // anders boven de straat en leken door elkaar heen te lopen.
+            'fill-extrusion-base': 0,
+            'fill-extrusion-opacity': 1,
             'fill-extrusion-vertical-gradient': true,
           },
         }, eersteSymbool || undefined);
@@ -730,7 +737,7 @@ function laadProject() {
   project.vlaggen = Object.assign({ aan: true }, project.vlaggen || {});
   $('pin-soort').value = project.pin.soort || 'stip';
   $('route-vlaggen').checked = project.vlaggen.aan !== false;
-  project.kaart = Object.assign({ terrein: false, gebouwen: false, hoogte: 2 }, project.kaart || {});
+  project.kaart = Object.assign({ terrein: false, gebouwen: false, hoogte: 1 }, project.kaart || {});
   pasKaartToe();
   pasPinToe();
   tekenVlaggen();
@@ -1829,26 +1836,45 @@ function renderTick() {
   tekenMonitor();
 }
 
-// Zelfde kleuren als de luchtlaag in de kaart. Dient als ondergrond zodat
-// een schuine stand nooit een wit vlak oplevert, ook niet bij export.
-function luchtVerloop(ctx, W, H) {
-  var g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#6695bb');
-  g.addColorStop(0.55, '#aac3d2');
-  g.addColorStop(1, '#d9c9ae');
+// Lucht boven de horizon. MapLibre laat die ruimte leeg (transparant),
+// dus tekenen we hem zelf: een verloop dat onderaan de kleur overneemt
+// van het land net onder de horizon. Zo loopt het beeld naadloos over
+// zonder dat er een waas over gebouwen heen ligt.
+var LUCHT_TOP = '#5f8cb3';
+var LUCHT_MID = '#93b4cb';
+var NEVEL = [217, 201, 174];
+
+function mengKleur(a, b, f) {
+  return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * f) + ',' +
+                  Math.round(a[1] + (b[1] - a[1]) * f) + ',' +
+                  Math.round(a[2] + (b[2] - a[2]) * f) + ')';
+}
+
+function luchtVerloop(ctx, grens, grond) {
+  var g = ctx.createLinearGradient(0, 0, 0, Math.max(1, grens));
+  g.addColorStop(0, LUCHT_TOP);
+  g.addColorStop(0.55, LUCHT_MID);
+  if (grond) {
+    g.addColorStop(0.85, mengKleur(grond, NEVEL, 0.5));
+    g.addColorStop(1, mengKleur(grond, NEVEL, 0.8));
+  } else {
+    g.addColorStop(1, '#d9c9ae');
+  }
   return g;
 }
 
-// Waar houdt de kaart op en begint de lucht? MapLibre laat de ruimte boven
-// de horizon leeg (transparant); die grens zoeken we op in een klein
-// proefbeeldje, zodat we er een zachte nevelband over kunnen leggen.
-var horizonProef = { canvas: null, pitch: -1, fractie: null };
+// Waar houdt de kaart op? We zoeken de eerste rij die (bijna) helemaal
+// gevuld is in een klein proefbeeldje van de kaart-canvas, en nemen meteen
+// de gemiddelde kleur van het land daaronder mee.
+var horizonProef = { canvas: null, pitch: -1, fractie: null, grond: null };
 
-function horizonFractie() {
-  if (!map) return null;
-  if (map.getPitch() < 66) return null;
+function horizonInfo() {
+  if (!map) return { fractie: null, grond: null };
+  if (map.getPitch() < 66) return { fractie: null, grond: null };
   var p = Math.round(map.getPitch() * 4) / 4;
-  if (horizonProef.pitch === p) return horizonProef.fractie;
+  if (horizonProef.pitch === p) {
+    return { fractie: horizonProef.fractie, grond: horizonProef.grond };
+  }
 
   if (!horizonProef.canvas) {
     horizonProef.canvas = document.createElement('canvas');
@@ -1857,43 +1883,43 @@ function horizonFractie() {
   }
   var kx = horizonProef.canvas.getContext('2d');
   kx.clearRect(0, 0, 64, 36);
-  try { kx.drawImage(map.getCanvas(), 0, 0, 64, 36); } catch(e) { return null; }
+  try { kx.drawImage(map.getCanvas(), 0, 0, 64, 36); } catch(e) { return { fractie: null, grond: null }; }
   var d = kx.getImageData(0, 0, 64, 36).data;
+
   var fractie = null;
   for (var r = 0; r < 36; r++) {
     var zichtbaar = 0;
     for (var x = 0; x < 64; x++) if (d[(r * 64 + x) * 4 + 3] > 8) zichtbaar++;
     if (zichtbaar > 32) { fractie = r / 36; break; }
   }
+
+  var grond = null;
+  if (fractie !== null) {
+    var rij = Math.min(34, Math.round(fractie * 36) + 2);
+    var som = [0, 0, 0], n = 0;
+    for (var rr = rij; rr <= Math.min(35, rij + 2); rr++) {
+      for (var xx = 0; xx < 64; xx++) {
+        var i = (rr * 64 + xx) * 4;
+        if (d[i + 3] > 8) { som[0] += d[i]; som[1] += d[i + 1]; som[2] += d[i + 2]; n++; }
+      }
+    }
+    if (n) grond = [som[0] / n, som[1] / n, som[2] / n];
+  }
+
   horizonProef.pitch = p;
   horizonProef.fractie = fractie;
-  return fractie;
-}
-
-function tekenHorizonNevel(ctx, W, H) {
-  var f = horizonFractie();
-  if (f === null) return;
-  var hy = f * H;
-  var band = Math.max(24, H * 0.16);
-  var g = ctx.createLinearGradient(0, hy - band * 0.45, 0, hy + band);
-  g.addColorStop(0, 'rgba(217,201,174,0)');
-  g.addColorStop(0.30, 'rgba(217,201,174,0.38)');
-  g.addColorStop(0.34, 'rgba(217,201,174,0.62)');
-  g.addColorStop(0.62, 'rgba(217,201,174,0.22)');
-  g.addColorStop(1, 'rgba(217,201,174,0)');
-  ctx.save();
-  ctx.fillStyle = g;
-  ctx.fillRect(0, Math.max(0, hy - band * 0.45), W, band * 1.45);
-  ctx.restore();
+  horizonProef.grond = grond;
+  return { fractie: fractie, grond: grond };
 }
 
 function tekenCompositie() {
   if (!compCtx || !map) return;
   var W = compCanvas.width, H = compCanvas.height;
-  compCtx.fillStyle = luchtVerloop(compCtx, W, H);
+  var h = horizonInfo();
+  var grens = (h.fractie !== null) ? h.fractie * H : H;
+  compCtx.fillStyle = luchtVerloop(compCtx, grens, h.grond);
   compCtx.fillRect(0, 0, W, H);
   try { compCtx.drawImage(map.getCanvas(), 0, 0, W, H); } catch(e) { return; }
-  tekenHorizonNevel(compCtx, W, H);
   tekenOverlays(compCtx, W, H);
 }
 
@@ -1926,10 +1952,10 @@ function tekenMonitor() {
   ctx.beginPath();
   ctx.rect(0, 0, mw, mh);
   ctx.clip();
-  ctx.fillStyle = luchtVerloop(ctx, mw, mh);
+  var hh = horizonInfo();
+  ctx.fillStyle = luchtVerloop(ctx, (hh.fractie !== null) ? hh.fractie * mh : mh, hh.grond);
   ctx.fillRect(0, 0, mw, mh);
   try { ctx.drawImage(map.getCanvas(), 0, 0, mw, mh); } catch(e) {}
-  tekenHorizonNevel(ctx, mw, mh);
   tekenOverlays(ctx, mw, mh);
   ctx.restore();
 
@@ -2094,7 +2120,7 @@ function downloadBestand(inhoud, naam, mime) {
 function exporteerProjectJSON() {
   if (!opname) { toast('Kies eerst een opname'); return; }
   var data = {
-    versie: 'v0.33',
+    versie: 'v0.34',
     soort: 'aok-studio-project',
     opname: { id: opname.id, naam: opname.naam, gestart: opname.gestart, gestopt: opname.gestopt },
     tijdbasis: { start_ms: beginTs, eind_ms: eindTs },
@@ -2135,7 +2161,7 @@ function importeerProjectJSON(bestand) {
       project.vlaggen = Object.assign({ aan: true }, project.vlaggen || {});
       $('pin-soort').value = project.pin.soort || 'stip';
       $('route-vlaggen').checked = project.vlaggen.aan !== false;
-      project.kaart = Object.assign({ terrein: false, gebouwen: false, hoogte: 2 }, project.kaart || {});
+      project.kaart = Object.assign({ terrein: false, gebouwen: false, hoogte: 1 }, project.kaart || {});
       pasKaartToe();
       pasPinToe();
       tekenVlaggen();
@@ -2348,7 +2374,7 @@ function bindUI() {
   });
   $('kaart-hoogte').addEventListener('input', function() {
     project.kaart.hoogte = Number(this.value);
-    $('kaart-hoogte-w').textContent = '×' + Number(this.value).toFixed(1).replace('.', ',');
+    $('kaart-hoogte-w').textContent = '×' + Number(this.value).toFixed(1).replace('.', ',') + (Number(this.value) === 1 ? ' (echt)' : '');
     bewaarProject();
     zetTerrein(project.kaart.terrein);
     verversBeeld();
@@ -2387,7 +2413,7 @@ var TERREIN_TEGELS = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z
 
 function zetTerrein(aan) {
   if (!map) return;
-  var k = project.kaart || (project.kaart = { terrein: false, gebouwen: false, hoogte: 2 });
+  var k = project.kaart || (project.kaart = { terrein: false, gebouwen: false, hoogte: 1 });
   try {
     if (aan) {
       if (!map.getSource('terrain-dem')) {
@@ -2399,7 +2425,7 @@ function zetTerrein(aan) {
           maxzoom: 15,
         });
       }
-      var hoogte = Math.max(1, Math.min(3, Number(k.hoogte) || 2));
+      var hoogte = Math.max(1, Math.min(5, Number(k.hoogte) || 1));
       map.setTerrain({ source: 'terrain-dem', exaggeration: hoogte });
     } else {
       map.setTerrain(null);
@@ -2418,14 +2444,19 @@ function zetTerrein(aan) {
 function zetGebouwen3d(aan) {
   if (!map || !map.getLayer('st-gebouwen-3d')) return;
   map.setLayoutProperty('st-gebouwen-3d', 'visibility', aan ? 'visible' : 'none');
+  // De platte gebouwvlakken eronder uitzetten: anders tekenen ze door de
+  // blokken heen (z-fighting) en blijven donkere vlakken op de grond staan.
+  ['building', 'building-outline'].forEach(function(id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', aan ? 'none' : 'visible');
+  });
 }
 
 function pasKaartToe() {
-  var k = project.kaart || (project.kaart = { terrein: false, gebouwen: false, hoogte: 2 });
+  var k = project.kaart || (project.kaart = { terrein: false, gebouwen: false, hoogte: 1 });
   if ($('kaart-terrein')) $('kaart-terrein').checked = !!k.terrein;
   if ($('kaart-gebouwen')) $('kaart-gebouwen').checked = !!k.gebouwen;
-  if ($('kaart-hoogte')) $('kaart-hoogte').value = Number(k.hoogte) || 2;
-  if ($('kaart-hoogte-w')) $('kaart-hoogte-w').textContent = '×' + (Number(k.hoogte) || 2).toFixed(1).replace('.', ',');
+  if ($('kaart-hoogte')) $('kaart-hoogte').value = Number(k.hoogte) || 1;
+  if ($('kaart-hoogte-w')) $('kaart-hoogte-w').textContent = '×' + (Number(k.hoogte) || 1).toFixed(1).replace('.', ',') + ((Number(k.hoogte) || 1) === 1 ? ' (echt)' : '');
   zetTerrein(!!k.terrein);
   zetGebouwen3d(!!k.gebouwen);
 }
