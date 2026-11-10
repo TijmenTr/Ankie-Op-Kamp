@@ -2,7 +2,7 @@
 
 Een two-screen YouTube series webapp voor GPS-navigatie en missiebeheer.
 
-**Versie:** v0.34 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
+**Versie:** v0.35 — het nummer staat in de footer van `index.html` en moet gelijk zijn aan het opslagpunt in het platform.
 
 ## 🗂️ Bestandsstructuur
 
@@ -103,7 +103,7 @@ Aparte console voor het maken van de kaartanimatie. Bereikbaar via de knop **�
 - **3D-kaart (alleen in de Studio)**: twee schakelaars onder **Beeld → 3D-kaart**:
   - **Terrein met hoogte** — echte hoogtedata (open DEM-tiles, tot zoom 15) zodat heuvels en dalen als 3D-reliëf in de kaart staan, met een **hoogteslider ×1–×5** en een subtiele hellinglaag zodat het reliëf ook bij fel licht zichtbaar blijft. **×1 is de echte hoogte**, hoger is overdrijven.
     Let op: de vrij beschikbare wereldwijde hoogtedata is ±30 m nauwkeurig. Grote heuvels en dalen kloppen daarmee, maar een dijk van een paar meter valt binnen die marge — die wordt dus platgeslagen of juist als zachte bult weergegeven. Met overdrijven worden die onnauwkeurigheden uitvergroot. Voor echt scherpe dijken is het Nederlandse AHN (0,5 m, open data) nodig; dat is alleen als grote GeoTIFF/WMTS beschikbaar en niet als kant-en-klare hoogtetegels.
-  - **Losse gebouwen in 3D** — gebouwen worden echte blokken met hun hoogte uit de kaartdata (zichtbaar vanaf zoom 14). De platte gebouwlaag gaat dan uit en verborgen 3D-delen worden overgeslagen, zodat de blokken niet door elkaar heen tekenen.
+  - **Losse gebouwen in 3D** — gebouwen worden echte blokken met hun hoogte uit de kaartdata (zichtbaar vanaf zoom 14). De platte gebouwlaag gaat dan uit en verborgen 3D-delen worden overgeslagen, zodat de blokken niet door elkaar heen tekenen. Staat de hoogtekaart aan, dan worden de blokken 4 m per stap overdrijving opgetild (×2 = 4 m, ×3 = 8 m), zodat ze niet in het grove hoogtemodel verdwijnen.
   Beide staan **alleen** in de Studio; de kaart van de spelers (`kaart-stijl.json`) blijft plat en ongewijzigd. De stand wordt per opname in het project bewaard.
 - **Lucht en horizon**: bij een schuine stand (vanaf ±66°) vult de Studio de lege ruimte boven de horizon met een luchtverloop dat onderaan de kleur van het land overneemt. Zo loopt het beeld naadloos over, zonder witte vlakken en zonder waas over gebouwen heen.
 - **Kaart**: **3D-stand (schuin)**, **Pas baan in beeld**.

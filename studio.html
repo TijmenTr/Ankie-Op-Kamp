@@ -2120,7 +2120,7 @@ function downloadBestand(inhoud, naam, mime) {
 function exporteerProjectJSON() {
   if (!opname) { toast('Kies eerst een opname'); return; }
   var data = {
-    versie: 'v0.34',
+    versie: 'v0.35',
     soort: 'aok-studio-project',
     opname: { id: opname.id, naam: opname.naam, gestart: opname.gestart, gestopt: opname.gestopt },
     tijdbasis: { start_ms: beginTs, eind_ms: eindTs },
@@ -2377,6 +2377,7 @@ function bindUI() {
     $('kaart-hoogte-w').textContent = '×' + Number(this.value).toFixed(1).replace('.', ',') + (Number(this.value) === 1 ? ' (echt)' : '');
     bewaarProject();
     zetTerrein(project.kaart.terrein);
+    zetGebouwLift();
     verversBeeld();
   });
   $('btn-pas-in').addEventListener('click', pasBaanInBeeld);
@@ -2437,13 +2438,28 @@ function zetTerrein(aan) {
   if (map.getLayer('st-helling')) {
     map.setLayoutProperty('st-helling', 'visibility', aan ? 'visible' : 'none');
   }
+  zetGebouwLift();
   var rij = $('kaart-terrein-rij');
   if (rij) rij.style.display = aan ? 'flex' : 'none';
+}
+
+// Het terrein is een grof hoogtemodel (pixels van ±30 m). Op een helling
+// kan het oppervlak daardoor net boven de voet van een gebouw uitkomen, en
+// met overdrijven wordt dat erger. Daarom tillen we de blokken iets op,
+// net zoveel als de overdrijving: ×1 = 0 m, ×3 = 6 m.
+function zetGebouwLift() {
+  if (!map || !map.getLayer('st-gebouwen-3d')) return;
+  var exag = map.getTerrain() ? (Number(map.getTerrain().exaggeration) || 1) : 1;
+  var lift = Math.min(16, Math.max(0, (exag - 1) * 4));
+  map.setPaintProperty('st-gebouwen-3d', 'fill-extrusion-base', lift);
+  map.setPaintProperty('st-gebouwen-3d', 'fill-extrusion-height',
+    ['+', ['coalesce', ['get', 'render_height'], 4], lift]);
 }
 
 function zetGebouwen3d(aan) {
   if (!map || !map.getLayer('st-gebouwen-3d')) return;
   map.setLayoutProperty('st-gebouwen-3d', 'visibility', aan ? 'visible' : 'none');
+  zetGebouwLift();
   // De platte gebouwvlakken eronder uitzetten: anders tekenen ze door de
   // blokken heen (z-fighting) en blijven donkere vlakken op de grond staan.
   ['building', 'building-outline'].forEach(function(id) {
